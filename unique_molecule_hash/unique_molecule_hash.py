@@ -5,6 +5,12 @@ import xxhash
 import rdkit
 
 
+# Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
+tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
+tautomer_enumerator.SetMaxTautomers(2)
+tautomer_enumerator.SetRemoveSp3Stereo(False)
+
+
 def separate_components(mol: Chem.Mol) -> list:
     """
     Separates the rdkit mol into its individual components and returns them as a list of rdkit molecules.
@@ -57,7 +63,7 @@ def separate_components(mol: Chem.Mol) -> list:
     return components
 
 
-def get_unique_hash(mol: Chem.Mol) -> str:
+def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     """
     Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhancedstereo, tautomerism and
     query features.
@@ -69,6 +75,14 @@ def get_unique_hash(mol: Chem.Mol) -> str:
     - Repeat for each fragment
     - concat all fragments and stereo code
     - generate hash
+
+    By default an internal rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
+    as it has a "Canonicalize(mol)" method that returns a canonical tautomer. This of course impact the generated hash
+    and also performance.
+
+    :param mol: a valid rdkit molecule
+    :param enumerator: tautomer enumerator to use
+    :return: a unique hash of the rdkit molecule
     """
 
     # Part 1
@@ -81,9 +95,9 @@ def get_unique_hash(mol: Chem.Mol) -> str:
     # First we remove all conformers as we don't want coordinates in the cxsmiles
     # we want canonical smiles therefore the query features must be re-mapped to canonical smiles
     # atom indexes
-    enumerator = rdMolStandardize.TautomerEnumerator()
     component_hashes = []
     for component in components:
+        #canon_mol = enumerator.Canonicalize(component)
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
             canon_mol = enumerator.Canonicalize(component)
@@ -112,7 +126,7 @@ def get_unique_hash(mol: Chem.Mol) -> str:
 
     # canonical component order
     component_hashes.sort()
-    h = xxhash.xxh64()
+    h = xxhash.xxh3_64()
     for ch in component_hashes:
         h.update(ch.encode('ASCII'))
     return h.hexdigest()
