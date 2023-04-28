@@ -3,6 +3,10 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 import copy
 import xxhash
 import rdkit
+import logging
+
+
+logger = logging.getLogger('unique_molecule_hash')
 
 
 # Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
@@ -23,46 +27,68 @@ def separate_components(mol: Chem.Mol) -> list:
     """
     mapping = []
     frags = []
+    logger.debug(f"Separating components for molecule {Chem.MolToSmiles(mol)}")
     components = Chem.GetMolFrags(mol, asMols=True, frags=frags, fragsMolAtomMapping=mapping)
-
-    # GetMolFrags prior to 2023.03.1 loses enhanced stereo if there is more than one component (structure) in the
-    # molecule. Therefore the enhanced stereo needs to be recreated and reassigned.
-
-    if rdkit.__version__ >= "2023.03.01":
-        return components
 
     # tuple to list for later assignments
     components = list(components)
+    logger.debug(f"Molecule consists of {len(components)} components.")
 
-    if len(components) > 1 and len(mol.GetStereoGroups()) > 0:
-
+    # GetMolFrags prior to 2023.03.1 loses enhanced stereo if there is more than one component (structure) in the
+    # molecule. Therefore the enhanced stereo needs to be recreated and reassigned.
+    if rdkit.__version__ < "2023.03.01" and len(components) > 1 and len(mol.GetStereoGroups()) > 0:
+        logger.debug(f"Found RDKit version < 2023.03.01. Have to reassign enhanced stereo to components.")
         stereo_groups = [[] for i in range(len(components))]
 
         for st_grp in mol.GetStereoGroups():
+            grp_type = st_grp.GetGroupType()
             atoms = st_grp.GetAtoms()
-            # group is limited to 1 component
-            a0_idx = atoms[0].GetIdx()
-            component_idx = frags[a0_idx]
-            atom_ids = []
-            for atom in atoms:
-                old_idx = atom.GetIdx()
-                new_idx = mapping[component_idx].index(old_idx)
-                atom_ids.append(new_idx)
-            # change component to RWMol and get atoms from this RWMol
-            if len(stereo_groups[component_idx]) == 0:
-                rwm = Chem.RWMol(components[component_idx])
-                components[component_idx] = rwm
-            sg = Chem.CreateStereoGroup(st_grp.GetGroupType(), components[component_idx], atom_ids)
-            stereo_groups[component_idx].append(sg)
+            # group is  limited to 1 component in case of or / and. but only a single group for abs
+            # StereoGroup for absolute stereochemistry is only one group with all atoms from both components
+            # Therefore code needs to split them up and create a StereoGroup for each component
+            if grp_type == Chem.STEREO_ABSOLUTE:
+                atom_ids = [[] for i in range(len(components))]
+                for atom in atoms:
+                    old_idx = atom.GetIdx()
+                    for component_idx, component in enumerate(components):
+                        if old_idx in mapping[component_idx]:
+                            new_idx = mapping[component_idx].index(old_idx)
+                            atom_ids[component_idx].append(new_idx)
+                            break
+                # Build STEREO_ABSOLUTE group for each component separately
+                for component_idx in range(len(components)):
+                    if len(atom_ids[component_idx]) > 0:
+                        if len(stereo_groups[component_idx]) == 0:
+                            rwm = Chem.RWMol(components[component_idx])
+                            components[component_idx] = rwm
+                        sg = Chem.CreateStereoGroup(st_grp.GetGroupType(), components[component_idx], atom_ids[component_idx])
+                        stereo_groups[component_idx].append(sg)
+            else:
+                a0_idx = atoms[0].GetIdx()
+                component_idx = frags[a0_idx]
+                atom_ids = []
+                for atom in atoms:
+                    old_idx = atom.GetIdx()
+                    new_idx = mapping[component_idx].index(old_idx)
+                    atom_ids.append(new_idx)
+                # change component to RWMol and get atoms from this RWMol
+                if len(stereo_groups[component_idx]) == 0:
+                    rwm = Chem.RWMol(components[component_idx])
+                    components[component_idx] = rwm
+                sg = Chem.CreateStereoGroup(st_grp.GetGroupType(), components[component_idx], atom_ids)
+                stereo_groups[component_idx].append(sg)
 
         for component_idx, component in enumerate(components):
             if len(stereo_groups[component_idx]) > 0:
                 component.SetStereoGroups(stereo_groups[component_idx])
                 components[component_idx] = component.GetMol()
+                logger.debug(f"Fixed Stereo for component {Chem.MolToSmiles(component)}")
 
     return components
 
 
+# idea: make standard hash method and a confgurable one to choose tautomer layer (inchi or enumerator), custom layer
+# with or without enhanced stereo etc.
 def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     """
     Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhancedstereo, tautomerism and
@@ -95,11 +121,13 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     # First we remove all conformers as we don't want coordinates in the cxsmiles
     # we want canonical smiles therefore the query features must be re-mapped to canonical smiles
     # atom indexes
+    logger.debug("Generating hash for all components...")
     component_hashes = []
     for component in components:
         #canon_mol = enumerator.Canonicalize(component)
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
+            logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
             canon_mol = enumerator.Canonicalize(component)
         else:
             canon_mol = component
@@ -112,6 +140,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
         component_hash = Chem.MolToCXSmiles(mol_copy)
         order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
         m2 = Chem.RenumberAtoms(mol_copy, order)
+        logger.debug("Determining Bond query features for hashing.")
         bonds = []
         for atom in m2.GetAtoms():
             for bond in atom.GetBonds():
@@ -129,4 +158,6 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     h = xxhash.xxh3_64()
     for ch in component_hashes:
         h.update(ch.encode('ASCII'))
-    return h.hexdigest()
+    hex_hash = h.hexdigest()
+    logger.debug(f"Generated hash {hex_hash} for molecule {Chem.MolToSmiles(mol)}.")
+    return hex_hash
