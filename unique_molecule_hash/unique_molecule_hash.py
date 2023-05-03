@@ -124,7 +124,6 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     logger.debug("Generating hash for all components...")
     component_hashes = []
     for component in components:
-        #canon_mol = enumerator.Canonicalize(component)
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
             logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
@@ -132,24 +131,29 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
         else:
             canon_mol = component
 
-        # Sets _smilesAtomOutputOrder property which we need to map query bonds correctly
-        Chem.MolToSmiles(canon_mol)
-        # create copy and remove conformers so that cxsmiles doesn't contain coordinates!
-        mol_copy = copy.deepcopy(canon_mol)
-        mol_copy.RemoveAllConformers()
-        component_hash = Chem.MolToCXSmiles(mol_copy)
-        order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
-        m2 = Chem.RenumberAtoms(mol_copy, order)
-        logger.debug("Determining Bond query features for hashing.")
-        bonds = []
-        for atom in m2.GetAtoms():
-            for bond in atom.GetBonds():
-                if bond.HasQuery() and bond.GetIdx() not in bonds:
-                    bonds.append(bond.GetIdx())
-                    q = bond.GetSmarts()
-                    b = bond.GetBeginAtomIdx()
-                    e = bond.GetEndAtomIdx()
-                    component_hash += ' |{}:{},{}|'.format(q, b, e)
+        write_params = Chem.SmilesWriteParams() # default write params
+        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=498)
+
+        # if molecule contains query bonds, special handling is needed to ensure constant hash
+        # it requires that atoms need to be reordered in the order of the smiles output
+        if "~" in component_hash:
+            # _smilesAtomOutputOrder property is needed to map query bonds correctly
+            # a copy of the molecule is created to match the atom indexes of the output order
+            # for some reason GetPropsAsDict takes a significant amount of time (200µs) therefore
+            # it's worth it to have this check. it also prevents iteration over bonds an atoms.
+            # in total this if block reduces runtime by about 40% !!! (v2022.09.05)
+            order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
+            m2 = Chem.RenumberAtoms(canon_mol, order)
+            logger.debug("Determining Bond query features for hashing.")
+            bonds = []
+            for atom in m2.GetAtoms():
+                for bond in atom.GetBonds():
+                    if bond.HasQuery() and bond.GetIdx() not in bonds:
+                        bonds.append(bond.GetIdx())
+                        q = bond.GetSmarts()
+                        b = bond.GetBeginAtomIdx()
+                        e = bond.GetEndAtomIdx()
+                        component_hash += ' |{}:{},{}|'.format(q, b, e)
         component_hash += ';'
         component_hashes.append(component_hash)
 
@@ -157,6 +161,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     component_hashes.sort()
     h = xxhash.xxh3_64()
     for ch in component_hashes:
+        logger.debug(f"Raw hash for component: {ch}.")
         h.update(ch.encode('ASCII'))
     hex_hash = h.hexdigest()
     logger.debug(f"Generated hash {hex_hash} for molecule {Chem.MolToSmiles(mol)}.")
