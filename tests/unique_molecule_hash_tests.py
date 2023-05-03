@@ -30,7 +30,7 @@ class UniqueMoleculeHashTest(unittest.TestCase):
         StereoGroup for absolute stereochemistry is only one group with all atoms from both components
         Therefore code needs to split them up and create a group for each component
         """
-        molv300 = """ACS Document 1996
+        molv3000 = """ACS Document 1996
   ChemDraw04282311222D
 
   0  0  0     0  0              0 V3000
@@ -80,6 +80,62 @@ M  V30 END COLLECTION
 M  V30 END CTAB
 M  END
 """
-        m = Chem.MolFromMolBlock(molv300)
+        m = Chem.MolFromMolBlock(molv3000)
         h = unique_molecule_hash.get_unique_hash(m)
         self.assertIsNotNone(h)
+
+    def test_sgroups(self):
+        """
+        Atoms can be annotated with text like a "*" in this case. this should not impact the hash and hash should be
+        the same with or without this annotation
+        """
+
+        molv3000 = """ACS Document 1996
+  ChemDraw11172216522D
+
+  0  0  0     0  0              0 V3000
+M  V30 BEGIN CTAB
+M  V30 COUNTS 13 13 1 0 0
+M  V30 BEGIN ATOM
+M  V30 1 C -1.681708 -1.477962 0.000000 0
+M  V30 2 C -0.856798 -1.473379 0.000000 0
+M  V30 3 C -0.605888 -0.687424 0.000000 0
+M  V30 4 O -1.275363 -0.206227 0.000000 0
+M  V30 5 C -1.940638 -0.694299 0.000000 0
+M  V30 6 O -2.726593 -0.444152 0.000000 0
+M  V30 7 C -0.396606 0.110753 0.000000 0
+M  V30 8 C 0.192288 -0.896706 0.000000 0
+M  V30 9 C 0.772780 -0.310486 0.000000 0
+M  V30 10 C 1.570574 -0.519769 0.000000 0
+M  V30 11 C 2.151065 0.066451 0.000000 0
+M  V30 12 C 2.146483 0.891361 0.000000 0
+M  V30 13 C 2.726593 1.477962 0.000000 0
+M  V30 END ATOM
+M  V30 BEGIN BOND
+M  V30 1 1 1 2
+M  V30 2 1 2 3
+M  V30 3 1 3 4
+M  V30 4 1 4 5
+M  V30 5 1 5 1
+M  V30 6 2 5 6
+M  V30 7 1 3 7
+M  V30 8 1 3 8
+M  V30 9 1 8 9
+M  V30 10 1 9 10
+M  V30 11 2 10 11
+M  V30 12 1 11 12
+M  V30 13 1 12 13
+M  V30 END BOND
+M  V30 BEGIN SGROUP
+M  V30 1 DAT 1 FIELDNAME=Text FIELDDISP="   -0.4799   -0.7485    DA    ALL  1 -
+M  V30       5" FIELDDATA="*"
+M  V30 END SGROUP
+M  V30 END CTAB
+M  END
+"""
+        m = Chem.MolFromMolBlock(molv3000)
+        h = unique_molecule_hash.get_unique_hash(m)
+        self.assertIsNotNone(h)
+        m2 = Chem.MolFromSmiles("O=C1OC(C)(CC/C=C\CC)CC1")
+        h2 = unique_molecule_hash.get_unique_hash(m2)
+        self.assertEqual(h, h2, msg="Error: Fielddata Text changes hash.")
