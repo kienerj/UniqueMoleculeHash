@@ -132,7 +132,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
             canon_mol = component
 
         write_params = Chem.SmilesWriteParams() # default write params
-        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=498)
+        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=363)
 
         # if molecule contains query bonds, special handling is needed to ensure constant hash
         # it requires that atoms need to be reordered in the order of the smiles output
@@ -154,7 +154,6 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
                         b = bond.GetBeginAtomIdx()
                         e = bond.GetEndAtomIdx()
                         component_hash += ' |{}:{},{}|'.format(q, b, e)
-        component_hash += ';'
         component_hashes.append(component_hash)
 
     # canonical component order
