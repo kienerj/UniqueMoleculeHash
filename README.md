@@ -13,7 +13,7 @@ channels:
   - defaults   
 dependencies:
   - python>=3.10  
-  - rdkit>=2022.09.1 
+  - rdkit>=2022.09.3 
   - xxhash>=3.2.0
 ```
 
@@ -31,5 +31,4 @@ If you clone the repo with git (vs downloading), this has the advantage that you
 You can then immediately use the new version without any further changes.
 
 ## Usage Examples
-
 
