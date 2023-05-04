@@ -3,6 +3,7 @@ from rdkit.Chem.MolStandardize import rdMolStandardize
 import copy
 import xxhash
 import rdkit
+import re
 import logging
 
 
@@ -131,6 +132,13 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
 
         write_params = Chem.SmilesWriteParams() # default write params
         component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=489)
+
+        # remove any text data stored in sgroups (SgD:Text) which has no chemical meaning
+        # no option to omit this specifically, other sgroup data might be chemically relevant
+        component_hash = re.sub(r"SgD:Text:.+::::", "", component_hash)
+        # removing text might lead to empty additional data for cx smiles, remove that as well
+        # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
+        component_hash = re.sub(r"\|.*\|", "", component_hash).strip()
 
         # if molecule contains query bonds, special handling is needed to ensure constant hash
         # it requires that atoms need to be reordered in the order of the smiles output
