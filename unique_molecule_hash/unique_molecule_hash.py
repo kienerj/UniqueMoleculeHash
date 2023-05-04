@@ -18,7 +18,7 @@ def separate_components(mol: Chem.Mol) -> list:
     """
     Separates the rdkit mol into its individual components and returns them as a list of rdkit molecules.
 
-    This function is required to circumvent a bug in rdkit before 2023.03.1. Chem.GetMolFrags removes enhancedstereo
+    This function is required to circumvent a bug in rdkit before 2023.03.1. Chem.GetMolFrags removes enhanced stereo
     from the returned fragments. This reassigns it.
 
     :param mol: a valid rdkit molecule
@@ -34,7 +34,7 @@ def separate_components(mol: Chem.Mol) -> list:
     logger.debug(f"Molecule consists of {len(components)} components.")
 
     # GetMolFrags prior to 2023.03.1 loses enhanced stereo if there is more than one component (structure) in the
-    # molecule. Therefore the enhanced stereo needs to be recreated and reassigned.
+    # molecule. Therefore, the enhanced stereo needs to be recreated and reassigned.
     if rdkit.__version__ < "2023.03.01" and len(components) > 1 and len(mol.GetStereoGroups()) > 0:
         logger.debug(f"Found RDKit version < 2023.03.01. Have to reassign enhanced stereo to components.")
         stereo_groups = [[] for i in range(len(components))]
@@ -90,7 +90,7 @@ def separate_components(mol: Chem.Mol) -> list:
 # with or without enhanced stereo etc.
 def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     """
-    Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhancedstereo, tautomerism and
+    Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhanced stereo, tautomerism and
     query features.
 
     Logic:
@@ -101,7 +101,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     - concat all fragments and stereo code
     - generate hash
 
-    By default an internal rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
+    By default, an internal rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
     as it has a "Canonicalize(mol)" method that returns a canonical tautomer. This of course impact the generated hash
     and also performance.
 
@@ -116,7 +116,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
 
     # Part 2
     # Get canonical tautomer
-    # Take cxmsiles of canonical tautomer and add query features to it
+    # Take cxsmiles of canonical tautomer and add query features to it
     # First we remove all conformers as we don't want coordinates in the cxsmiles
     # we want canonical smiles therefore the query features must be re-mapped to canonical smiles
     # atom indexes
@@ -191,6 +191,8 @@ def single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
     Replaces single bonds between metals and atoms with atomic numbers in fom_atoms
     with dative bonds. The replacement is only done if the atom has "too many" bonds.
 
+    see https://www.rdkit.org/docs/Cookbook.html (source of this code)
+
     :param mol: molecule to replace single bonds with dative bonds
     :param from_atoms: source atomic numbers of the single bonds to consider replacement
     :return: the modified molecule with dative bonds
@@ -222,8 +224,8 @@ def remove_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
     for dative_bond in to_remove:
         rwmol.RemoveBond(dative_bond[0], dative_bond[1])
 
-    # reassign double bond stereochemistry from coordiantes
-    result =  rwmol.GetMol()
+    # reassign double bond stereochemistry from coordinates
+    result = rwmol.GetMol()
     if len(result.GetConformers()) > 0:
         Chem.SetDoubleBondNeighborDirections(result, result.GetConformer(0))
     return result
