@@ -86,7 +86,7 @@ def separate_components(mol: Chem.Mol) -> list:
     return components
 
 
-# idea: make standard hash method and a confgurable one to choose tautomer layer (inchi or enumerator), custom layer
+# idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
 def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     """
@@ -123,6 +123,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     logger.debug("Generating hash for all components...")
     component_hashes = []
     for component in components:
+        component = handle_dative_bonds(component)
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
             logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
@@ -171,3 +172,58 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     hex_hash = h.hexdigest()
     logger.debug(f"Generated hash {hex_hash} for molecule {Chem.MolToSmiles(mol)}.")
     return hex_hash
+
+
+def handle_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+
+    mol = single_to_dative_bonds(mol)
+    mol = remove_dative_bonds(mol)
+    return mol
+
+
+def is_transition_metal(atom: Chem.Atom) -> bool:
+    n = atom.GetAtomicNum()
+    return (22 <= n <= 29) or (40 <= n <= 47) or (72 <= n <= 79)
+
+
+def single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
+    """
+    Replaces single bonds between metals and atoms with atomic numbers in fom_atoms
+    with dative bonds. The replacement is only done if the atom has "too many" bonds.
+
+    :param mol: molecule to replace single bonds with dative bonds
+    :param from_atoms: source atomic numbers of the single bonds to consider replacement
+    :return: the modified molecule with dative bonds
+
+    """
+    pt = Chem.GetPeriodicTable()
+    rwmol = Chem.RWMol(mol)
+    rwmol.UpdatePropertyCache(strict=False)
+    metals = [at for at in rwmol.GetAtoms() if is_transition_metal(at)]
+    for metal in metals:
+        for nbr in metal.GetNeighbors():
+            if nbr.GetAtomicNum() in from_atoms and \
+                    nbr.GetExplicitValence() > pt.GetDefaultValence(nbr.GetAtomicNum()) and \
+                    rwmol.GetBondBetweenAtoms(nbr.GetIdx(), metal.GetIdx()).GetBondType() == Chem.BondType.SINGLE:
+                rwmol.RemoveBond(nbr.GetIdx(), metal.GetIdx())
+                rwmol.AddBond(nbr.GetIdx(), metal.GetIdx(), Chem.BondType.DATIVE)
+    return rwmol.GetMol()
+
+
+def remove_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+
+    rwmol = Chem.RWMol(mol)
+    to_remove = []
+    for bond in rwmol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DATIVE:
+            begin_atom_idx = bond.GetBeginAtomIdx()
+            end_atom_idx = bond.GetEndAtomIdx()
+            to_remove.append((begin_atom_idx, end_atom_idx))
+    for dative_bond in to_remove:
+        rwmol.RemoveBond(dative_bond[0], dative_bond[1])
+
+    # reassign double bond stereochemistry from coordiantes
+    result =  rwmol.GetMol()
+    if len(result.GetConformers()) > 0:
+        Chem.SetDoubleBondNeighborDirections(result, result.GetConformer(0))
+    return result
