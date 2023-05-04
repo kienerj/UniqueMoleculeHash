@@ -138,7 +138,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
         component_hash = re.sub(r"SgD:Text:.+::::", "", component_hash)
         # removing text might lead to empty additional data for cx smiles, remove that as well
         # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
-        component_hash = re.sub(r"\|.*\|", "", component_hash).strip()
+        component_hash = re.sub(r"\|[, ]?\|", "", component_hash).strip()
 
         # if molecule contains query bonds, special handling is needed to ensure constant hash
         # it requires that atoms need to be reordered in the order of the smiles output
