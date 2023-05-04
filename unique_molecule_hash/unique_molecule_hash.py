@@ -11,8 +11,6 @@ logger = logging.getLogger('unique_molecule_hash')
 
 # Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
 tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
-tautomer_enumerator.SetMaxTautomers(2)
-tautomer_enumerator.SetRemoveSp3Stereo(False)
 
 
 def separate_components(mol: Chem.Mol) -> list:
@@ -132,7 +130,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
             canon_mol = component
 
         write_params = Chem.SmilesWriteParams() # default write params
-        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=363)
+        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=489)
 
         # if molecule contains query bonds, special handling is needed to ensure constant hash
         # it requires that atoms need to be reordered in the order of the smiles output
