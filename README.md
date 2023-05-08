@@ -1,6 +1,10 @@
-# UniqueMoleculeHash
+# Unique Molecule Hash
 
-`unique_molecule_hash` creates a unique hash for rdkit molecules that can be used to compare them if they match exactly.
+The intend of `unique_molecule_hash` is to create a unique hash for rdkit molecules that can be used to compare them if they match exactly. 
+
+This is a work in progress. Use at own risk. Hashes may changes with every new version and there are known issues.
+
+inchi does not capture enhanced stereo while RDKit registration hash does not capture query features (and other issues that make it not usable for my use-case). Unique Molecule Hashes goal is to solve this problem so one can easily compare molecules without having to think which is the right hash to choose.
 
 ## Installation
 
@@ -30,5 +34,7 @@ python -m pip install -e c:\path\to\UniqueMoleculeHash
 If you clone the repo with git (vs downloading), this has the advantage that you can use git to pull new commits. 
 You can then immediately use the new version without any further changes.
 
-## Usage Examples
+## Caveats
 
+- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for a different tautomer or even the same with a different input (kekulization)
+- Atom-Query features completely missing for now
