@@ -1,6 +1,5 @@
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
-import copy
 import xxhash
 import rdkit
 import re
@@ -8,7 +7,6 @@ import logging
 
 
 logger = logging.getLogger('unique_molecule_hash')
-
 
 # Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
 tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
@@ -86,30 +84,36 @@ def separate_components(mol: Chem.Mol) -> list:
     return components
 
 
+#TODO: include atom queries in hash. unclear how as GetSmarts() is not canonical so the same query with different
+# order returns a different SMARTS and the cxsmiles always contains the first atom in the query
+# eg [N,O,S] means CXSMiles will contain the "N" while in [O,N,S] it would be the "O".
+# Tautomerism: open issues around canonical tautomers not being at all that canonical especially if input is differently
+# kekulized (https://github.com/rdkit/rdkit/issues/5937). Use inchi if no query features present?
 # idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
-def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
+def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489) -> str:
     """
     Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhanced stereo, tautomerism and
     query features.
 
-    Logic:
-    - Separate components/fragments
-    - Take cxsmiles of canonical tautomer without coordinates. These include enhanced stereo!
-    - Add query feature description to cxsmiles
-    - Repeat for each fragment
-    - concat all fragments and stereo code
-    - generate hash
-
-    By default, an internal rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
-    as it has a "Canonicalize(mol)" method that returns a canonical tautomer. This of course impact the generated hash
-    and also performance.
+    By default, an rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
+    as it has a "Canonicalize(mol)" method that returns a canonical tautomer (RDKit molecule). This of course impact the
+    generated hash.
 
     :param mol: a valid rdkit molecule
     :param enumerator: tautomer enumerator to use
+    :param cx_smiles_fields: flags for cxsmiles creation
     :return: a unique hash of the rdkit molecule
     """
 
+    # Logic:
+    # - Separate components/fragments
+    # - Take cxsmiles of canonical tautomer without coordinates. These include enhanced stereo!
+    # - Add query feature description to cxsmiles
+    # - Repeat for each fragment
+    # - concat all fragments and stereo code
+    # - generate hash
+    #
     # Part 1
     # GetMolFrags prior to rdkit 2023.03.1 loses enhanced stereo if there is more than one component in the molecule.
     components = separate_components(mol)
@@ -123,7 +127,8 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     logger.debug("Generating hash for all components...")
     component_hashes = []
     for component in components:
-        component = handle_dative_bonds(component)
+        component = _handle_dative_bonds(component)
+
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
             logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
@@ -132,7 +137,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
             canon_mol = component
 
         write_params = Chem.SmilesWriteParams() # default write params
-        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=489)
+        component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=cx_smiles_fields)
 
         # remove any text data stored in sgroups (SgD:Text) which has no chemical meaning
         # no option to omit this specifically, other sgroup data might be chemically relevant
@@ -153,7 +158,10 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
             m2 = Chem.RenumberAtoms(canon_mol, order)
             logger.debug("Determining Bond query features for hashing.")
             bonds = []
-            for atom in m2.GetAtoms():
+            # for atom in m2.GetAtoms():
+            # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
+            for i in range(0, m2.GetNumAtoms()):
+                atom = m2.GetAtomWithIdx(i)
                 for bond in atom.GetBonds():
                     if bond.HasQuery() and bond.GetIdx() not in bonds:
                         bonds.append(bond.GetIdx())
@@ -174,19 +182,19 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator) -> str:
     return hex_hash
 
 
-def handle_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+def _handle_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
 
-    mol = single_to_dative_bonds(mol)
-    mol = remove_dative_bonds(mol)
+    mol = _single_to_dative_bonds(mol)
+    mol = _remove_dative_bonds(mol)
     return mol
 
 
-def is_transition_metal(atom: Chem.Atom) -> bool:
+def _is_transition_metal(atom: Chem.Atom) -> bool:
     n = atom.GetAtomicNum()
     return (22 <= n <= 29) or (40 <= n <= 47) or (72 <= n <= 79)
 
 
-def single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
+def _single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
     """
     Replaces single bonds between metals and atoms with atomic numbers in fom_atoms
     with dative bonds. The replacement is only done if the atom has "too many" bonds.
@@ -201,7 +209,7 @@ def single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
     pt = Chem.GetPeriodicTable()
     rwmol = Chem.RWMol(mol)
     rwmol.UpdatePropertyCache(strict=False)
-    metals = [at for at in rwmol.GetAtoms() if is_transition_metal(at)]
+    metals = [at for at in rwmol.GetAtoms() if _is_transition_metal(at)]
     for metal in metals:
         for nbr in metal.GetNeighbors():
             if nbr.GetAtomicNum() in from_atoms and \
@@ -212,7 +220,7 @@ def single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
     return rwmol.GetMol()
 
 
-def remove_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+def _remove_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
 
     rwmol = Chem.RWMol(mol)
     to_remove = []
