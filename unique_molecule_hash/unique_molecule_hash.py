@@ -14,7 +14,8 @@ tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
 
 def separate_components(mol: Chem.Mol) -> list:
     """
-    Separates the rdkit mol into its individual components and returns them as a list of rdkit molecules.
+    Separates the rdkit mol into its individual components and returns them as a list of rdkit RWMols for further
+    manipulation.
 
     This function is required to circumvent a bug in rdkit before 2023.03.1. Chem.GetMolFrags removes enhanced stereo
     from the returned fragments. This reassigns it.
@@ -78,9 +79,10 @@ def separate_components(mol: Chem.Mol) -> list:
         for component_idx, component in enumerate(components):
             if len(stereo_groups[component_idx]) > 0:
                 component.SetStereoGroups(stereo_groups[component_idx])
-                components[component_idx] = component.GetMol()
+                components[component_idx] = component
                 logger.debug(f"Fixed Stereo for component {Chem.MolToSmiles(component)}")
-
+    else:
+        components = [Chem.RWMol(comp) for comp in components]
     return components
 
 
@@ -182,7 +184,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
     return hex_hash
 
 
-def _handle_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+def _handle_dative_bonds(mol: Chem.RWMol) -> Chem.RWMol:
 
     mol = _single_to_dative_bonds(mol)
     mol = _remove_dative_bonds(mol)
@@ -194,7 +196,7 @@ def _is_transition_metal(atom: Chem.Atom) -> bool:
     return (22 <= n <= 29) or (40 <= n <= 47) or (72 <= n <= 79)
 
 
-def _single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
+def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
     """
     Replaces single bonds between metals and atoms with atomic numbers in fom_atoms
     with dative bonds. The replacement is only done if the atom has "too many" bonds.
@@ -207,33 +209,30 @@ def _single_to_dative_bonds(mol: Chem.Mol, from_atoms=(7, 8)) -> Chem.Mol:
 
     """
     pt = Chem.GetPeriodicTable()
-    rwmol = Chem.RWMol(mol)
-    rwmol.UpdatePropertyCache(strict=False)
-    metals = [at for at in rwmol.GetAtoms() if _is_transition_metal(at)]
+    mol.UpdatePropertyCache(strict=False)
+    metals = [at for at in mol.GetAtoms() if _is_transition_metal(at)]
     for metal in metals:
         for nbr in metal.GetNeighbors():
             if nbr.GetAtomicNum() in from_atoms and \
                     nbr.GetExplicitValence() > pt.GetDefaultValence(nbr.GetAtomicNum()) and \
-                    rwmol.GetBondBetweenAtoms(nbr.GetIdx(), metal.GetIdx()).GetBondType() == Chem.BondType.SINGLE:
-                rwmol.RemoveBond(nbr.GetIdx(), metal.GetIdx())
-                rwmol.AddBond(nbr.GetIdx(), metal.GetIdx(), Chem.BondType.DATIVE)
-    return rwmol.GetMol()
+                    mol.GetBondBetweenAtoms(nbr.GetIdx(), metal.GetIdx()).GetBondType() == Chem.BondType.SINGLE:
+                mol.RemoveBond(nbr.GetIdx(), metal.GetIdx())
+                mol.AddBond(nbr.GetIdx(), metal.GetIdx(), Chem.BondType.DATIVE)
+    return mol
 
 
-def _remove_dative_bonds(mol: Chem.Mol) -> Chem.Mol:
+def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.Mol:
 
-    rwmol = Chem.RWMol(mol)
     to_remove = []
-    for bond in rwmol.GetBonds():
+    for bond in mol.GetBonds():
         if bond.GetBondType() == Chem.BondType.DATIVE:
             begin_atom_idx = bond.GetBeginAtomIdx()
             end_atom_idx = bond.GetEndAtomIdx()
             to_remove.append((begin_atom_idx, end_atom_idx))
     for dative_bond in to_remove:
-        rwmol.RemoveBond(dative_bond[0], dative_bond[1])
+        mol.RemoveBond(dative_bond[0], dative_bond[1])
 
     # reassign double bond stereochemistry from coordinates
-    result = rwmol.GetMol()
-    if len(result.GetConformers()) > 0:
-        Chem.SetDoubleBondNeighborDirections(result, result.GetConformer(0))
-    return result
+    if len(mol.GetConformers()) > 0:
+        Chem.SetDoubleBondNeighborDirections(mol, mol.GetConformer(0))
+    return mol
