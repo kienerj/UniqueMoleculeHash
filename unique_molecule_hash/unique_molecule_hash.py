@@ -87,25 +87,45 @@ def separate_components(mol: Chem.Mol) -> list:
     return components
 
 
-#TODO: include atom queries in hash. unclear how as GetSmarts() is not canonical so the same query with different
+def get_standard_hash(mol: Chem.Mol):
+    """
+    Generates a unique hash for this molecule to compare rdkit molecules on tehir same chemical intent.
+
+    :param mol: a valid rdkit molecule
+    :return: the stanard unique hash
+    """
+    return get_hash(mol)
+
+
+# TODO: include atom queries in hash. unclear how as GetSmarts() is not canonical so the same query with different
 # order returns a different SMARTS and the cxsmiles always contains the first atom in the query
 # eg [N,O,S] means CXSMiles will contain the "N" while in [O,N,S] it would be the "O".
 # Tautomerism: open issues around canonical tautomers not being at all that canonical especially if input is differently
 # kekulized (https://github.com/rdkit/rdkit/issues/5937). Use inchi if no query features present?
 # idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
-def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489) -> str:
+def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489,
+             normalize_dative_bonds: bool = True, include_query_features = True) -> str:
     """
-    Creates a hash to compare RDKit molecules for uniqueness. it takes into account enhanced stereo, tautomerism and
+    Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
 
     By default, an rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
     as it has a "Canonicalize(mol)" method that returns a canonical tautomer (RDKit molecule). This of course impact the
     generated hash.
 
+    normalize_dative_bonds option converts potential dative bonds drawn as single bonds to dative bonds. This is only
+    done if invalid valences are found. As a last step all dative bonds will be removed to give the same hash to the
+    same "chemical intent" as chemists often don't draw dative bonds at all or draw them as single bonds.
+
+    include_query_features option will include query features as part of the hash. In any case, query atoms will be
+    included as "any atom" (*) but with this option the actually query will be part of the hash as well.
+
     :param mol: a valid rdkit molecule
     :param enumerator: tautomer enumerator to use
     :param cx_smiles_fields: flags for cxsmiles creation
+    :param normalize_dative_bonds: converts potential dative bonds drawn as single bonds to dative bonds
+    :param include_query_features: if query features should be part of the hash or not
     :return: a unique hash of the rdkit molecule
     """
 
@@ -141,7 +161,16 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
             bond = component.GetBondWithIdx(i)
             bonds.append(bond)
 
-        component = _handle_dative_bonds(component, atoms, bonds)
+        # Fix Query atoms: A query list like [F,Cl,Br] leads to a SMILES containing "F" (eg the first atom in the list
+        # instead of a "*" when this same query is read from SMARTS.
+        for atom in atoms:
+            if atom.HasQuery() and "AtomOr" in atom.DescribeQuery(): # likely too simplistic
+                if atom.GetAtomicNum() != 0:
+                    logger.warning(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
+                    atom.SetAtomicNum(0)
+
+        if normalize_dative_bonds:
+            component = _normalize_dative_bonds(component, atoms, bonds)
 
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
@@ -203,7 +232,7 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
     return hex_hash
 
 
-def _handle_dative_bonds(mol: Chem.RWMol, atoms: list, bonds: list) -> Chem.RWMol:
+def _normalize_dative_bonds(mol: Chem.RWMol, atoms: list, bonds: list) -> Chem.RWMol:
 
     mol = _single_to_dative_bonds(mol, atoms)
     mol = _remove_dative_bonds(mol, bonds)

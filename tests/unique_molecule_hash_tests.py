@@ -20,8 +20,8 @@ class UniqueMoleculeHashTest(unittest.TestCase):
         """
         mx1 = Chem.MolFromSmiles("CC.CCC.CC=O")
         mx2 = Chem.MolFromSmiles("CCC.CC=O.CC")
-        h1 = unique_molecule_hash.get_unique_hash(mx1)
-        h2 = unique_molecule_hash.get_unique_hash(mx2)
+        h1 = unique_molecule_hash.get_hash(mx1)
+        h2 = unique_molecule_hash.get_hash(mx2)
         self.assertEqual(h1, h2, "Hashes for same mixtures with different order did not match.")
 
     def test_absolute_stereo(self):
@@ -81,7 +81,7 @@ M  V30 END CTAB
 M  END
 """
         m = Chem.MolFromMolBlock(molv3000)
-        h = unique_molecule_hash.get_unique_hash(m)
+        h = unique_molecule_hash.get_hash(m)
         self.assertIsNotNone(h)
 
     def test_sgroups(self):
@@ -134,10 +134,10 @@ M  V30 END CTAB
 M  END
 """
         m = Chem.MolFromMolBlock(molv3000)
-        h = unique_molecule_hash.get_unique_hash(m)
+        h = unique_molecule_hash.get_hash(m)
         self.assertIsNotNone(h)
         m2 = Chem.MolFromSmiles("O=C1OC(C)(CC/C=C\CC)CC1")
-        h2 = unique_molecule_hash.get_unique_hash(m2)
+        h2 = unique_molecule_hash.get_hash(m2)
         self.assertEqual(h, h2, msg="Error: Fielddata Text changes hash.")
 
     def test_brackets(self):
@@ -223,8 +223,8 @@ M  END"""
         
         pm2 = Chem.MolFromMolBlock(poly2)
 
-        h1 = unique_molecule_hash.get_unique_hash(pm1)
-        h2 = unique_molecule_hash.get_unique_hash(pm2)
+        h1 = unique_molecule_hash.get_hash(pm1)
+        h2 = unique_molecule_hash.get_hash(pm2)
         self.assertIsNotNone(h1)
         self.assertIsNotNone(h2)
         self.assertIsNot(h1,h2,"Polymers have same hash even-though different repeat pattern specified.")
