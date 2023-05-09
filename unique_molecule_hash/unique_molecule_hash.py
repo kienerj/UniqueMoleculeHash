@@ -130,7 +130,18 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
     logger.debug("Generating hash for all components...")
     component_hashes = []
     for component in components:
-        component = _handle_dative_bonds(component)
+
+        atoms = []
+        for i in range(0, component.GetNumAtoms()):
+            atom = component.GetAtomWithIdx(i)
+            atoms.append(atom)
+
+        bonds = []
+        for i in range(0, component.GetNumBonds()):
+            bond = component.GetBondWithIdx(i)
+            bonds.append(bond)
+
+        component = _handle_dative_bonds(component, atoms, bonds)
 
         tauts = enumerator.Enumerate(component)
         if len(tauts) > 1:
@@ -192,10 +203,10 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
     return hex_hash
 
 
-def _handle_dative_bonds(mol: Chem.RWMol) -> Chem.RWMol:
+def _handle_dative_bonds(mol: Chem.RWMol, atoms: list, bonds: list) -> Chem.RWMol:
 
-    mol = _single_to_dative_bonds(mol)
-    mol = _remove_dative_bonds(mol)
+    mol = _single_to_dative_bonds(mol, atoms)
+    mol = _remove_dative_bonds(mol, bonds)
     return mol
 
 
@@ -204,7 +215,7 @@ def _is_transition_metal(atom: Chem.Atom) -> bool:
     return (22 <= n <= 29) or (40 <= n <= 47) or (72 <= n <= 79)
 
 
-def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
+def _single_to_dative_bonds(mol: Chem.RWMol, atoms: list, from_atoms=(7, 8)) -> Chem.RWMol:
     """
     Replaces single bonds between metals and atoms with atomic numbers in fom_atoms
     with dative bonds. The replacement is only done if the atom has "too many" bonds.
@@ -219,7 +230,7 @@ def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
     pt = Chem.GetPeriodicTable()
     mol.UpdatePropertyCache(strict=False)
     # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow hence lookup by index
-    metals = [mol.GetAtomWithIdx(i) for i in range(0, mol.GetNumAtoms()) if _is_transition_metal(mol.GetAtomWithIdx(i))]
+    metals = [atom for atom in atoms if _is_transition_metal(atom)]
     for metal in metals:
         for nbr in metal.GetNeighbors():
             if nbr.GetAtomicNum() in from_atoms and \
@@ -230,19 +241,18 @@ def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
     return mol
 
 
-def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.Mol:
+def _remove_dative_bonds(mol: Chem.RWMol, bonds: list) -> Chem.Mol:
 
     to_remove = []
     # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow and same applies to GetBonds()
-    for i in range(0, mol.GetNumBonds()):
-        bond = mol.GetBondWithIdx(i)
+    for bond in bonds:
         if bond.GetBondType() == Chem.BondType.DATIVE:
             begin_atom_idx = bond.GetBeginAtomIdx()
             end_atom_idx = bond.GetEndAtomIdx()
-            to_remove.append((begin_atom_idx, end_atom_idx))
+            to_remove.append((begin_atom_idx, end_atom_idx, bond))
     for dative_bond in to_remove:
         mol.RemoveBond(dative_bond[0], dative_bond[1])
-
+        bonds.remove(dative_bond[2])
     # reassign double bond stereochemistry from coordinates
     if len(mol.GetConformers()) > 0:
         Chem.SetDoubleBondNeighborDirections(mol, mol.GetConformer(0))
