@@ -4,6 +4,7 @@ import xxhash
 import rdkit
 import re
 import logging
+import ast
 
 
 logger = logging.getLogger('unique_molecule_hash')
@@ -156,7 +157,14 @@ def get_unique_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fie
             # for some reason GetPropsAsDict takes a significant amount of time (200µs) therefore
             # it's worth it to have this check. it also prevents iteration over bonds an atoms.
             # in total this if block reduces runtime by about 40% !!! (v2022.09.05)
-            order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
+
+            # GetPropsAsDict has unpredictable performance and can be slow if the molecile contains many large
+            # properties. For example loading from cxsmiles with coordinates increases the call by about 130µs.
+            # For predictable performance we get the property directly as string and convert to list with
+            # ast.literal_eval which is safe (read the docs)
+            # order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
+            o = canon_mol.GetProp("_smilesAtomOutputOrder")
+            order = ast.literal_eval(o)
             m2 = Chem.RenumberAtoms(canon_mol, order)
             logger.debug("Determining Bond query features for hashing.")
             bonds = []
@@ -210,7 +218,8 @@ def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
     """
     pt = Chem.GetPeriodicTable()
     mol.UpdatePropertyCache(strict=False)
-    metals = [at for at in mol.GetAtoms() if _is_transition_metal(at)]
+    # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow hence lookup by index
+    metals = [mol.GetAtomWithIdx(i) for i in range(0, mol.GetNumAtoms()) if _is_transition_metal(mol.GetAtomWithIdx(i))]
     for metal in metals:
         for nbr in metal.GetNeighbors():
             if nbr.GetAtomicNum() in from_atoms and \
@@ -224,7 +233,9 @@ def _single_to_dative_bonds(mol: Chem.RWMol, from_atoms=(7, 8)) -> Chem.RWMol:
 def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.Mol:
 
     to_remove = []
-    for bond in mol.GetBonds():
+    # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow and same applies to GetBonds()
+    for i in range(0, mol.GetNumBonds()):
+        bond = mol.GetBondWithIdx(i)
         if bond.GetBondType() == Chem.BondType.DATIVE:
             begin_atom_idx = bond.GetBeginAtomIdx()
             end_atom_idx = bond.GetEndAtomIdx()
