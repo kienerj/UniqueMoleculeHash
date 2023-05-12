@@ -11,6 +11,10 @@ logger = logging.getLogger('unique_molecule_hash')
 
 # Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
 tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
+# loading from SMARTS makes all bonds queries (HasQuery() == True) even if they are not really a query
+# therefore normal non-query bonds should be excluded from being processed as query bonds especially since
+# loading them from a different source will not make them query bonds
+non_query_bonds = ["-", "=", ":", "#"]
 
 
 def separate_components(mol: Chem.Mol) -> list:
@@ -201,7 +205,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
         # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
         component_hash = re.sub(r"\|[, ]?\|", "", component_hash).strip()
 
-        if include_query_features:
+        if include_query_features and (has_query_atom or has_query_bond):
             # if molecule contains query atoms or bonds, special handling is needed to ensure constant hash
             # it requires that atoms need to be reordered in the order of the smiles output
 
@@ -219,26 +223,38 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             o = canon_mol.GetProp("_smilesAtomOutputOrder")
             order = ast.literal_eval(o)
             # working on a reordered copy guarantees the same order for same molecules
-            m2 = Chem.RenumberAtoms(canon_mol, order)
+            #m2 = Chem.RenumberAtoms(canon_mol, order)
 
-            if has_query_bond:
-                logger.debug("Hashing Bond Query features...")
-                bonds_hashed = []
-                # for atom in m2.GetAtoms():
-                # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
-                for i in range(0, m2.GetNumAtoms()):
-                    atom = m2.GetAtomWithIdx(i)
-                    for bond in atom.GetBonds():
-                        if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
-                            bonds_hashed .append(bond.GetIdx())
-                            q = bond.GetSmarts()
+            # working on a reordered atom list guarantees the same order for same molecules
+            # this is much faster than Chem.RenumberAtoms(canon_mol, order), 5 vs 40 µs
+            # see:
+            # https://stackoverflow.com/questions/6618515/sorting-list-according-to-corresponding-values-from-a-parallel-list
+            # https://www.pythoncentral.io/how-to-sort-a-list-tuple-or-object-with-sorted-in-python/
+            # create list of lists, sort list by first element, the new order, return the second element into new list
+            atoms = [x for _, x in sorted(zip(order, atoms), key=lambda item: item[0])]
+
+            logger.debug("Hashing Query features...")
+            bonds_hashed = []
+            # for atom in m2.GetAtoms():
+            # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
+            for atom in atoms:
+                for bond in atom.GetBonds():
+                    if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
+                        q = bond.GetSmarts()
+                        # loading from SMARTS makes all bonds queries (HasQuery() == True) even if they are not
+                        # Normal bonds should be excluded from being processed as query especially since
+                        # loading them from a different source will not make them query bonds
+                        if q not in non_query_bonds:
                             b = bond.GetBeginAtomIdx()
                             e = bond.GetEndAtomIdx()
                             component_hash += ' |{}:{},{}|'.format(q, b, e)
+                            bonds_hashed.append(bond.GetIdx())
 
-            # Handle Query Atoms
-            if has_query_atom:
-                logger.debug("Hashing Atom Query features...")
+                if atom.HasQuery():
+                    qry = atom.GetSmarts()
+                    symbl = atom.GetSymbol()
+                    if qry != symbl:
+                        component_hash += ' |{}:{}|'.format(atom.GetIdx(), qry)
 
         component_hashes.append(component_hash)
 
