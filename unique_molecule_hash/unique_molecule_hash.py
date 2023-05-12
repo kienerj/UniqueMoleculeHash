@@ -105,7 +105,7 @@ def get_standard_hash(mol: Chem.Mol):
 # idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
 def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489,
-             normalize_dative_bonds: bool = True, include_query_features = True) -> str:
+             normalize_dative_bonds: bool = True, include_query_features: bool = True) -> str:
     """
     Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
@@ -119,7 +119,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
     same "chemical intent" as chemists often don't draw dative bonds at all or draw them as single bonds.
 
     include_query_features option will include query features as part of the hash. In any case, query atoms will be
-    included as "any atom" (*) but with this option the actually query will be part of the hash as well.
+    included as "any atom" (*) but with this option the actual query will be part of the hash as well.
 
     :param mol: a valid rdkit molecule
     :param enumerator: tautomer enumerator to use
@@ -151,22 +151,34 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
     component_hashes = []
     for component in components:
 
+        # iterating the python list is faster than lookup by idx and much faster than GetAtoms()
+        # hence we iterate once to get it into a list and reuse that list for future iterations
+        has_query_atom = False
+        has_query_bond = False
         atoms = []
+        query_atoms = []
         for i in range(0, component.GetNumAtoms()):
             atom = component.GetAtomWithIdx(i)
             atoms.append(atom)
+            if atom.HasQuery():
+                has_query_atom = True
+                query_atoms.append(atom)
 
         bonds = []
+        query_bonds = []
         for i in range(0, component.GetNumBonds()):
             bond = component.GetBondWithIdx(i)
             bonds.append(bond)
+            if bond.HasQuery():
+                has_query_bond = True
+                query_bonds.append(bond)
 
         # Fix Query atoms: A query list like [F,Cl,Br] leads to a SMILES containing "F" (eg the first atom in the list
         # instead of a "*" when this same query is read from SMARTS.
         for atom in atoms:
             if atom.HasQuery() and "AtomOr" in atom.DescribeQuery(): # likely too simplistic
                 if atom.GetAtomicNum() != 0:
-                    logger.warning(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
+                    logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
                     atom.SetAtomicNum(0)
 
         if normalize_dative_bonds:
@@ -189,36 +201,45 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
         # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
         component_hash = re.sub(r"\|[, ]?\|", "", component_hash).strip()
 
-        # if molecule contains query bonds, special handling is needed to ensure constant hash
-        # it requires that atoms need to be reordered in the order of the smiles output
-        if "~" in component_hash:
+        if include_query_features:
+            # if molecule contains query atoms or bonds, special handling is needed to ensure constant hash
+            # it requires that atoms need to be reordered in the order of the smiles output
+
             # _smilesAtomOutputOrder property is needed to map query bonds correctly
             # a copy of the molecule is created to match the atom indexes of the output order
             # for some reason GetPropsAsDict takes a significant amount of time (200µs) therefore
             # it's worth it to have this check. it also prevents iteration over bonds an atoms.
             # in total this if block reduces runtime by about 40% !!! (v2022.09.05)
 
-            # GetPropsAsDict has unpredictable performance and can be slow if the molecile contains many large
+            # GetPropsAsDict has unpredictable performance and can be very slow if the molecule contains many large
             # properties. For example loading from cxsmiles with coordinates increases the call by about 130µs.
             # For predictable performance we get the property directly as string and convert to list with
             # ast.literal_eval which is safe (read the docs)
             # order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
             o = canon_mol.GetProp("_smilesAtomOutputOrder")
             order = ast.literal_eval(o)
+            # working on a reordered copy guarantees the same order for same molecules
             m2 = Chem.RenumberAtoms(canon_mol, order)
-            logger.debug("Determining Bond query features for hashing.")
-            bonds = []
-            # for atom in m2.GetAtoms():
-            # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
-            for i in range(0, m2.GetNumAtoms()):
-                atom = m2.GetAtomWithIdx(i)
-                for bond in atom.GetBonds():
-                    if bond.HasQuery() and bond.GetIdx() not in bonds:
-                        bonds.append(bond.GetIdx())
-                        q = bond.GetSmarts()
-                        b = bond.GetBeginAtomIdx()
-                        e = bond.GetEndAtomIdx()
-                        component_hash += ' |{}:{},{}|'.format(q, b, e)
+
+            if has_query_bond:
+                logger.debug("Hashing Bond Query features...")
+                bonds_hashed = []
+                # for atom in m2.GetAtoms():
+                # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
+                for i in range(0, m2.GetNumAtoms()):
+                    atom = m2.GetAtomWithIdx(i)
+                    for bond in atom.GetBonds():
+                        if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
+                            bonds_hashed .append(bond.GetIdx())
+                            q = bond.GetSmarts()
+                            b = bond.GetBeginAtomIdx()
+                            e = bond.GetEndAtomIdx()
+                            component_hash += ' |{}:{},{}|'.format(q, b, e)
+
+            # Handle Query Atoms
+            if has_query_atom:
+                logger.debug("Hashing Atom Query features...")
+
         component_hashes.append(component_hash)
 
     # canonical component order
