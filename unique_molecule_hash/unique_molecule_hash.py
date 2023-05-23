@@ -235,6 +235,10 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             # working on a reordered copy guarantees the same order for same molecules
             #m2 = Chem.RenumberAtoms(canon_mol, order)
             # newOrder is [3,2,0,1], then atom 3 in the original molecule will be atom 0 in the new one
+            # re order the list so it works for sorting zipped lists
+            sort_order = [None] * len(order)
+            for idx, val in enumerate(order):
+                sort_order[val] = idx
 
             # working on a reordered atom list guarantees the same order for same molecules
             # this is much faster than Chem.RenumberAtoms(canon_mol, order), 5 vs 40 µs
@@ -242,7 +246,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             # https://stackoverflow.com/questions/6618515/sorting-list-according-to-corresponding-values-from-a-parallel-list
             # https://www.pythoncentral.io/how-to-sort-a-list-tuple-or-object-with-sorted-in-python/
             # create list of lists, sort list by first element, the new order, return the second element into new list
-            atoms = [x for _, x in sorted(zip(order, atoms), key=lambda item: item[0])]
+            atoms = [x for _, x in sorted(zip(sort_order, atoms), key=lambda item: item[0])]
 
             logger.debug("Hashing Query features...")
             bonds_hashed = []
@@ -255,9 +259,10 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
                         q = _canonicalize_query(bond.GetSmarts())
                         b = bond.GetBeginAtomIdx()
                         e = bond.GetEndAtomIdx()
+                        # map to canonical atom order
                         b = order.index(b)
                         e = order.index(e)
-                        # always use lowest atom index first
+                        # always use the lowest atom index first
                         srt = sorted([b,e])
                         component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
                         bonds_hashed.append(bond.GetIdx())
