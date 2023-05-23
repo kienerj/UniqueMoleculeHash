@@ -168,14 +168,15 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
                 # Fix Query atoms:
                 # A query list like [F,Cl,Br] leads to a SMILES containing "F", the first atom in the
                 # list instead of a "*" when this same query is read from SMARTS.
-                if "AtomOr" in atom.DescribeQuery(): # likely too simplistic
+                query_description = atom.DescribeQuery()
+                if "AtomOr" in query_description: # likely too simplistic
                     logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
                     atom.SetAtomicNum(0)
                 # Fix atomic number with atypical query order
                 # A SMARTS input of [R1&C] will set the atom in SMILES as wildcard instead of a Carbon
                 # because it is set to atomic number 0. Fix this and set to the proper AtomType
-                if atom.GetAtomicNum() == 0 and atom.DescribeQuery().count("AtomType") == 1:
-                    atomic_num = int(p_atom_type.search(atom.DescribeQuery()).group(1))
+                if atom.GetAtomicNum() == 0 and query_description.count("AtomType") == 1:
+                    atomic_num = int(p_atom_type.search(query_description).group(1))
                     atom.SetAtomicNum(atomic_num)
                 query_atoms.append(atom)
 
@@ -186,12 +187,16 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             bonds.append(bond)
             if bond.HasQuery():
                 has_query_bond = True
-                # Set bond to specific type if true
+                # Set bond to specific type
                 # a SMARTS of [!@;:] will lead to an unspecified bond type while [:;!@] (different order) results in
                 # aromatic bond type. If only 1 specific bond type in query, set it to that bond type
-                if bond.DescribeQuery().count("BondOrder") == 1:
-                    bond_type = int(p_bond_type.search(bond.DescribeQuery()).group(1))
+                query_description = bond.DescribeQuery()
+                if query_description.count("BondOrder") == 1:
+                    bond_type = int(p_bond_type.search(query_description).group(1))
                     bond.SetBondType(Chem.BondType.values[bond_type])
+                # either or query means bond is unspecified
+                elif query_description.count("BondOrder") > 1:
+                    bond.SetBondType(Chem.BondType.UNSPECIFIED)
                 query_bonds.append(bond)
 
         if normalize_dative_bonds:
