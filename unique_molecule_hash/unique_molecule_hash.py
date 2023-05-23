@@ -11,6 +11,8 @@ logger = logging.getLogger('unique_molecule_hash')
 
 # Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
 tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
+p_atom_type = re.compile(r"AtomType (\d+)")
+p_bond_type = re.compile(r"BondOrder (\d+)")
 
 
 def separate_components(mol: Chem.Mol) -> list:
@@ -157,11 +159,24 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
         has_query_bond = False
         atoms = []
         query_atoms = []
+
         for i in range(0, component.GetNumAtoms()):
             atom = component.GetAtomWithIdx(i)
             atoms.append(atom)
             if atom.HasQuery():
                 has_query_atom = True
+                # Fix Query atoms:
+                # A query list like [F,Cl,Br] leads to a SMILES containing "F", the first atom in the
+                # list instead of a "*" when this same query is read from SMARTS.
+                if "AtomOr" in atom.DescribeQuery(): # likely too simplistic
+                    logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
+                    atom.SetAtomicNum(0)
+                # Fix atomic number with atypical query order
+                # A SMARTS input of [R1&C] will set the atom in SMILES as wildcard instead of a Carbon
+                # because it is set to atomic number 0. Fix this and set to the proper AtomType
+                if atom.GetAtomicNum() == 0 and atom.DescribeQuery().count("AtomType") == 1:
+                    atomic_num = int(p_atom_type.search(atom.DescribeQuery()).group(1))
+                    atom.SetAtomicNum(atomic_num)
                 query_atoms.append(atom)
 
         bonds = []
@@ -171,15 +186,13 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             bonds.append(bond)
             if bond.HasQuery():
                 has_query_bond = True
+                # Set bond to specific type if true
+                # a SMARTS of [!@;:] will lead to an unspecified bond type while [:;!@] (different order) results in
+                # aromatic bond type. If only 1 specific bond type in query, set it to that bond type
+                if bond.DescribeQuery().count("BondOrder") == 1:
+                    bond_type = int(p_bond_type.search(bond.DescribeQuery()).group(1))
+                    bond.SetBondType(Chem.BondType.values[bond_type])
                 query_bonds.append(bond)
-
-        # Fix Query atoms: A query list like [F,Cl,Br] leads to a SMILES containing "F" (eg the first atom in the list
-        # instead of a "*" when this same query is read from SMARTS.
-        for atom in atoms:
-            if atom.HasQuery() and "AtomOr" in atom.DescribeQuery(): # likely too simplistic
-                if atom.GetAtomicNum() != 0:
-                    logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
-                    atom.SetAtomicNum(0)
 
         if normalize_dative_bonds:
             component = _normalize_dative_bonds(component, atoms, bonds)
@@ -218,8 +231,10 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             # order = canon_mol.GetPropsAsDict(True, True)["_smilesAtomOutputOrder"]
             o = canon_mol.GetProp("_smilesAtomOutputOrder")
             order = ast.literal_eval(o)
+            logger.debug(order)
             # working on a reordered copy guarantees the same order for same molecules
             #m2 = Chem.RenumberAtoms(canon_mol, order)
+            # newOrder is [3,2,0,1], then atom 3 in the original molecule will be atom 0 in the new one
 
             # working on a reordered atom list guarantees the same order for same molecules
             # this is much faster than Chem.RenumberAtoms(canon_mol, order), 5 vs 40 µs
@@ -234,17 +249,23 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
             # for atom in m2.GetAtoms():
             # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
             for atom in atoms:
+                logger.debug(f"Atom Index: {atom.GetIdx()}")
                 for bond in atom.GetBonds():
                     if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
-                        q = bond.GetSmarts()
+                        q = _canonicalize_query(bond.GetSmarts())
                         b = bond.GetBeginAtomIdx()
                         e = bond.GetEndAtomIdx()
-                        component_hash += ' |{}:{},{}|'.format(q, b, e)
+                        b = order.index(b)
+                        e = order.index(e)
+                        # always use lowest atom index first
+                        srt = sorted([b,e])
+                        component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
                         bonds_hashed.append(bond.GetIdx())
 
                 if atom.HasQuery():
-                    qry = atom.GetSmarts()
-                    component_hash += ' |{}:{}|'.format(atom.GetIdx(), qry)
+                    qry = _canonicalize_atom_query(atom.GetSmarts())
+                    atom_idx = order.index(atom.GetIdx())
+                    component_hash += ' |{}:{}|'.format(atom_idx, qry)
 
         component_hashes.append(component_hash)
 
@@ -257,6 +278,27 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
     hex_hash = h.hexdigest()
     logger.debug(f"Generated hash {hex_hash} for molecule {Chem.MolToSmiles(mol)}.")
     return hex_hash
+
+
+def _canonicalize_query(smarts: str):
+    add_braces = False
+    if smarts.startswith("["):
+        smarts = smarts.strip("[]")
+        add_braces = True
+    can_smarts = ";".join(sorted(
+        ",".join(sorted(
+            "&".join(sorted(factor.split("&")))
+            for factor in term.split(",")
+        ))
+        for term in smarts.split(";")
+    ))
+    if add_braces:
+        can_smarts = "[" + can_smarts + "]"
+    return can_smarts
+
+
+def _canonicalize_atom_query(smarts: str):
+    return re.sub(r'(\[[a-zA-Z0-9#,;:&]+\])', lambda m: _canonicalize_query(m.group()), smarts)
 
 
 def _normalize_dative_bonds(mol: Chem.RWMol, atoms: list, bonds: list) -> Chem.RWMol:
