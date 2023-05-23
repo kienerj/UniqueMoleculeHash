@@ -107,7 +107,7 @@ def get_standard_hash(mol: Chem.Mol):
 # idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
 def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489,
-             normalize_dative_bonds: bool = True, include_query_features: bool = True) -> str:
+             normalize_dative_bonds: bool = True, include_query_features: bool = True, seed: int = 0) -> str:
     """
     Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
@@ -128,6 +128,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
     :param cx_smiles_fields: flags for cxsmiles creation
     :param normalize_dative_bonds: converts potential dative bonds drawn as single bonds to dative bonds
     :param include_query_features: if query features should be part of the hash or not
+    :param seed: seed for xxhash. must be positive integer
     :return: a unique hash of the rdkit molecule
     """
 
@@ -281,7 +282,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
 
     # canonical component order
     component_hashes.sort()
-    h = xxhash.xxh3_64()
+    h = xxhash.xxh3_64(seed=seed)
     for ch in component_hashes:
         logger.debug(f"Raw hash for component: {ch}.")
         h.update(ch.encode('ASCII'))
