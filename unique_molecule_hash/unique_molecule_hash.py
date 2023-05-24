@@ -108,7 +108,7 @@ def get_standard_hash(mol: Chem.Mol):
 # with or without enhanced stereo etc.
 def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: bool = False,
              cx_smiles_fields: int = 489, normalize_dative_bonds: bool = True, include_query_features: bool = True,
-             seed: int = 0) -> str:
+             hash_size: int = 128, seed: int = 0) -> str:
     """
     Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
@@ -129,12 +129,17 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     include_query_features option will include query features as part of the hash. In any case, query atoms will be
     included as "any atom" (*) but with this option the actual query will be part of the hash as well.
 
+    by default a hash_size of 128 is used which has extremely high guarantees for uniqueness. See
+    https://github.com/Cyan4973/xxHash/wiki/Collision-ratio-comparison for details. A size of 64 still has low collision
+    rates and could be useful for many applications while saving space.
+
     :param mol: a valid rdkit molecule
     :param enumerator: tautomer enumerator to use
     :param tautomer_sensitive: if the hash is sensitive to different tautomers of the same molecule or not
     :param cx_smiles_fields: flags for cxsmiles creation
     :param normalize_dative_bonds: converts potential dative bonds drawn as single bonds to dative bonds
     :param include_query_features: if query features should be part of the hash or not
+    :param hash_size: size of the hash. Valid values 64 or 128 with default of 128
     :param seed: seed for xxhash. must be positive integer
     :return: a unique hash of the rdkit molecule
     """
@@ -292,7 +297,10 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
 
     # canonical component order
     component_hashes.sort()
-    h = xxhash.xxh3_64(seed=seed)
+    if hash_size == 64:
+        h = xxhash.xxh3_64(seed=seed)
+    elif hash_size == 128:
+        h = xxhash.xxh3_128(seed=seed)
     for ch in component_hashes:
         logger.debug(f"Raw hash for component: {ch}.")
         h.update(ch.encode('ASCII'))
