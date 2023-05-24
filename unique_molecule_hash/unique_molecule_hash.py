@@ -29,7 +29,18 @@ def separate_components(mol: Chem.Mol) -> list:
     mapping = []
     frags = []
     logger.debug(f"Separating components for molecule {Chem.MolToSmiles(mol)}")
-    components = Chem.GetMolFrags(mol, asMols=True, frags=frags, fragsMolAtomMapping=mapping)
+    try:
+        components = Chem.GetMolFrags(mol, asMols=True, frags=frags, fragsMolAtomMapping=mapping)
+    except Chem.AtomValenceException as ex:
+        # found component with invalid valence, retry with partial sanitation
+        logger.warning(f"Found Molecule {Chem.MolToSmiles(mol)} with invalid valence. Retrying with partial sanitization.")
+        components = Chem.GetMolFrags(mol, asMols=True, frags=frags, fragsMolAtomMapping=mapping, sanitizeFrags=False)
+        for component in components:
+            component.UpdatePropertyCache(strict=False)
+            Chem.SanitizeMol(component, Chem.SanitizeFlags.SANITIZE_FINDRADICALS | Chem.SanitizeFlags.SANITIZE_KEKULIZE
+                             | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION
+                             | Chem.SanitizeFlags.SANITIZE_SETHYBRIDIZATION | Chem.SanitizeFlags.SANITIZE_SYMMRINGS,
+                             catchErrors=True)
 
     # tuple to list for later assignments
     components = list(components)
@@ -171,7 +182,6 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         has_query_atom = False
         has_query_bond = False
         atoms = []
-        query_atoms = []
 
         for i in range(0, component.GetNumAtoms()):
             atom = component.GetAtomWithIdx(i)
@@ -191,13 +201,9 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 if atom.GetAtomicNum() == 0 and query_description.count("AtomType") == 1:
                     atomic_num = int(p_atom_type.search(query_description).group(1))
                     atom.SetAtomicNum(atomic_num)
-                query_atoms.append(atom)
 
-        bonds = []
-        query_bonds = []
         for i in range(0, component.GetNumBonds()):
             bond = component.GetBondWithIdx(i)
-            bonds.append(bond)
             if bond.HasQuery():
                 has_query_bond = True
                 # Set bond to specific type
@@ -210,10 +216,9 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 # either or query means bond is unspecified
                 elif query_description.count("BondOrder") > 1:
                     bond.SetBondType(Chem.BondType.UNSPECIFIED)
-                query_bonds.append(bond)
 
         if normalize_dative_bonds:
-            component = _normalize_dative_bonds(component, atoms, bonds)
+            component = _normalize_dative_bonds(component, atoms)
 
         if not tautomer_sensitive:
             tauts = enumerator.Enumerate(component)
@@ -330,10 +335,10 @@ def _canonicalize_atom_query(smarts: str):
     return re.sub(r'(\[[a-zA-Z0-9#,;:&]+\])', lambda m: _canonicalize_query(m.group()), smarts)
 
 
-def _normalize_dative_bonds(mol: Chem.RWMol, atoms: list, bonds: list) -> Chem.RWMol:
+def _normalize_dative_bonds(mol: Chem.RWMol, atoms: list) -> Chem.RWMol:
 
     mol = _single_to_dative_bonds(mol, atoms)
-    mol = _remove_dative_bonds(mol, bonds)
+    mol = _remove_dative_bonds(mol)
     return mol
 
 
@@ -368,18 +373,18 @@ def _single_to_dative_bonds(mol: Chem.RWMol, atoms: list, from_atoms=(7, 8)) -> 
     return mol
 
 
-def _remove_dative_bonds(mol: Chem.RWMol, bonds: list) -> Chem.Mol:
+def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.Mol:
 
     to_remove = []
     # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow and same applies to GetBonds()
-    for bond in bonds:
+    for i in range(0, mol.GetNumBonds()):
+        bond = mol.GetBondWithIdx(i)
         if bond.GetBondType() == Chem.BondType.DATIVE:
             begin_atom_idx = bond.GetBeginAtomIdx()
             end_atom_idx = bond.GetEndAtomIdx()
             to_remove.append((begin_atom_idx, end_atom_idx, bond))
     for dative_bond in to_remove:
         mol.RemoveBond(dative_bond[0], dative_bond[1])
-        bonds.remove(dative_bond[2])
     # reassign double bond stereochemistry from coordinates
     if len(mol.GetConformers()) > 0:
         Chem.SetDoubleBondNeighborDirections(mol, mol.GetConformer(0))
