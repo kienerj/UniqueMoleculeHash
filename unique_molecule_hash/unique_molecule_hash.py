@@ -106,8 +106,9 @@ def get_standard_hash(mol: Chem.Mol):
 # kekulized (https://github.com/rdkit/rdkit/issues/5937). Use inchi if no query features present?
 # idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
 # with or without enhanced stereo etc.
-def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: int = 489,
-             normalize_dative_bonds: bool = True, include_query_features: bool = True, seed: int = 0) -> str:
+def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: bool = False,
+             cx_smiles_fields: int = 489, normalize_dative_bonds: bool = True, include_query_features: bool = True,
+             seed: int = 0) -> str:
     """
     Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
@@ -115,6 +116,11 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
     By default, an rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
     as it has a "Canonicalize(mol)" method that returns a canonical tautomer (RDKit molecule). This of course impact the
     generated hash.
+
+    By default the hash is tautomer insensitive, meaning a different tautomer of the same molecule will result in the
+    same hash. To make the hash tautomer sensitive, set tautomer_sensitive = True.
+    Note that the rdMolStandardize.TautomerEnumerator() has bugs in which a different input with different kekulization
+    can lead to a different canonical tautomer and hence a different hash!
 
     normalize_dative_bonds option converts potential dative bonds drawn as single bonds to dative bonds. This is only
     done if invalid valences are found. As a last step all dative bonds will be removed to give the same hash to the
@@ -125,6 +131,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
 
     :param mol: a valid rdkit molecule
     :param enumerator: tautomer enumerator to use
+    :param tautomer_sensitive: if the hash is sensitive to different tautomers of the same molecule or not
     :param cx_smiles_fields: flags for cxsmiles creation
     :param normalize_dative_bonds: converts potential dative bonds drawn as single bonds to dative bonds
     :param include_query_features: if query features should be part of the hash or not
@@ -203,10 +210,13 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, cx_smiles_fields: in
         if normalize_dative_bonds:
             component = _normalize_dative_bonds(component, atoms, bonds)
 
-        tauts = enumerator.Enumerate(component)
-        if len(tauts) > 1:
-            logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
-            canon_mol = enumerator.Canonicalize(component)
+        if not tautomer_sensitive:
+            tauts = enumerator.Enumerate(component)
+            if len(tauts) > 1:
+                logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
+                canon_mol = enumerator.Canonicalize(component)
+            else:
+                canon_mol = component
         else:
             canon_mol = component
 
