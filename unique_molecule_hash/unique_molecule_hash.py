@@ -170,14 +170,29 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     component_hashes = []
     for component in components:
 
+        # Get Canonical Tautomer
+        if not tautomer_sensitive:
+            tauts = enumerator.Enumerate(component)
+            if len(tauts) > 1:
+                logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
+                # Fix for https://github.com/rdkit/rdkit/issues/5937
+                # Different input especially regarding kekulization can lead to a different canonical tautomer
+                # export -> import to smiles should fix that
+                temp_mol = Chem.MolFromSmiles(Chem.MolToCXSmiles(component))
+                canon_mol = enumerator.Canonicalize(temp_mol)
+            else:
+                canon_mol = component
+        else:
+            canon_mol = component
+
         # iterating the python list is faster than lookup by idx and much faster than GetAtoms()
         # hence we iterate once to get it into a list and reuse that list for future iterations
         has_query_atom = False
         has_query_bond = False
         atoms = []
 
-        for i in range(0, component.GetNumAtoms()):
-            atom = component.GetAtomWithIdx(i)
+        for i in range(0, canon_mol.GetNumAtoms()):
+            atom = canon_mol.GetAtomWithIdx(i)
             atoms.append(atom)
             if atom.HasQuery():
                 has_query_atom = True
@@ -195,8 +210,8 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                     atomic_num = int(p_atom_type.search(query_description).group(1))
                     atom.SetAtomicNum(atomic_num)
 
-        for i in range(0, component.GetNumBonds()):
-            bond = component.GetBondWithIdx(i)
+        for i in range(0, canon_mol.GetNumBonds()):
+            bond = canon_mol.GetBondWithIdx(i)
             if bond.HasQuery():
                 has_query_bond = True
                 # Set bond to specific type
@@ -211,21 +226,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                     bond.SetBondType(Chem.BondType.UNSPECIFIED)
 
         if normalize_dative_bonds:
-            component = _normalize_dative_bonds(component, atoms)
-
-        if not tautomer_sensitive:
-            tauts = enumerator.Enumerate(component)
-            if len(tauts) > 1:
-                logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
-                # Fix for https://github.com/rdkit/rdkit/issues/5937
-                # Different input especially regarding kekulization can lead to a different canonical tautomer
-                # export -> import to smiles should fix that
-                temp_mol = Chem.MolFromSmiles(Chem.MolToCXSmiles(component))
-                canon_mol = enumerator.Canonicalize(temp_mol)
-            else:
-                canon_mol = component
-        else:
-            canon_mol = component
+            canon_mol = _normalize_dative_bonds(canon_mol, atoms)
 
         write_params = Chem.SmilesWriteParams() # default write params
         component_hash = Chem.MolToCXSmiles(canon_mol, params=write_params, flags=cx_smiles_fields)
@@ -367,7 +368,7 @@ def _single_to_dative_bonds(mol: Chem.RWMol, atoms: list, from_atoms=(7, 8)) -> 
     return mol
 
 
-def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.Mol:
+def _remove_dative_bonds(mol: Chem.RWMol) -> Chem.RWMol:
 
     to_remove = []
     # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow and same applies to GetBonds()
