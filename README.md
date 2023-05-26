@@ -127,18 +127,31 @@ unique_molecule_hash.get_standard_hash(db3)
 
 #### Enhanced Stereochemistry
 
-Different enhanced stereochemistry leads to a different standard hash
+Different enhanced stereochemistry (and vs or) leads to a different standard hash. 
+
+Different bond direction but same molecule and same enhanced stereo lead to the same hash:
 
 ```python
-es1 = Chem.MolFromSmiles("C[C@@H](O)CC |o1:1|")
-es2 = Chem.MolFromSmiles("C[C@@H](O)CC |a:1|")
-es3 = Chem.MolFromSmiles("C[C@@H](O)CC |&1:1|")
-unique_molecule_hash.get_standard_hash(es1)
+or1 = Chem.MolFromSmiles("C[C@@H](O)CC |o1:1|")
+or2 = Chem.MolFromSmiles("C[C@H](O)CC |o1:1|")
+unique_molecule_hash.get_standard_hash(or1)
 # 07c147d18dc97fc20ebbd710c40743aa
-unique_molecule_hash.get_standard_hash(es2)
-# d2ed07bf023d09dfafc8f2c8d866cce6
-unique_molecule_hash.get_standard_hash(es3)
+unique_molecule_hash.get_standard_hash(or2)
+# 07c147d18dc97fc20ebbd710c40743aa
+
+and1 = Chem.MolFromSmiles("C[C@@H](O)CC |&1:1|")
+and2 = Chem.MolFromSmiles("C[C@H](O)CC |&1:1|")
+unique_molecule_hash.get_standard_hash(and1)
 # b01debf8c10bac48c1af32e49643210d
+unique_molecule_hash.get_standard_hash(and2)
+# b01debf8c10bac48c1af32e49643210d
+
+abs1 = Chem.MolFromSmiles("C[C@@H](O)CC |a:1|")
+abs2 = Chem.MolFromSmiles("C[C@H](O)CC |a:1|")
+unique_molecule_hash.get_standard_hash(abs1)
+# d2ed07bf023d09dfafc8f2c8d866cce6
+unique_molecule_hash.get_standard_hash(abs2)
+# 43a2fcd3d3493dacc43128b5eca0dffd
 ```
 
 Note that `C[C@@H](O)CC |&1:1`(both stereoisomers) does not get the same hash as `C[C@H](O)CC |&1:1` or drawing both isomers individually: `C[C@@H](O)CC.C[C@H](O)CC`. While one could argue they have the same chemical intend, for now this is out-of-scope but still a possible interesting future enhancement. 

@@ -71,3 +71,22 @@ class UniqueMoleculeHashTest(unittest.TestCase):
 
         self.assertTrue(len(set(hashes)) == 1,
                         "Found random tautomer with different hash. Hash is not tautomer insensitive")
+
+    def test_enhanced_stereo_input(self):
+
+        or1 = Chem.MolFromSmiles("C[C@@H](O)CC |o1:1|")
+        h_or1 = unique_molecule_hash.get_standard_hash(or1)
+        or2 = Chem.MolFromSmiles("C[C@H](O)CC |o1:1|")
+        h_or2 = unique_molecule_hash.get_standard_hash(or2)
+        self.assertEqual(h_or1, h_or2, "Enhanced Stereo 'OR' with different bond direction do not match.")
+
+        and1 = Chem.MolFromSmiles("C[C@@H](O)CC |&1:1|")
+        h_and1 = unique_molecule_hash.get_standard_hash(and1)
+        and2 = Chem.MolFromSmiles("C[C@H](O)CC |&1:1|")
+        h_and2 = unique_molecule_hash.get_standard_hash(and2)
+        self.assertEqual(h_and1, h_and2, "Enhanced Stereo 'AND' with different bond direction do not match.")
+
+        abs = Chem.MolFromSmiles("C[C@@H](O)CC |a:1|")
+        h_abs = unique_molecule_hash.get_standard_hash(abs)
+        self.assertNotEqual(h_abs, h_or1, "Molecule with absolute stereo has same hash as with 'OR'.")
+        self.assertNotEqual(h_abs, h_and1, "Molecule with absolute stereo has same hash as with 'AND'.")

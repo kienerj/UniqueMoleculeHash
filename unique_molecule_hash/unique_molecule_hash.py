@@ -1,5 +1,6 @@
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
+from rdkit.Chem.EnumerateStereoisomers import EnumerateStereoisomers, StereoEnumerationOptions
 import xxhash
 import rdkit
 import re
@@ -9,10 +10,11 @@ import ast
 
 logger = logging.getLogger('unique_molecule_hash')
 
-# Creating this instance is very costly so doing it only once instead of per function call reduces runtime by 5x!
+# Creating this instance is very costly so doing it only once instead of per function call
 tautomer_enumerator = rdMolStandardize.TautomerEnumerator()
 p_atom_type = re.compile(r"AtomType (\d+)")
 p_bond_type = re.compile(r"BondOrder (\d+)")
+stereo_opts = StereoEnumerationOptions(onlyStereoGroups=True)
 
 
 def separate_components(mol: Chem.Mol) -> list:
@@ -184,6 +186,19 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 canon_mol = component
         else:
             canon_mol = component
+
+        # Get canonical isomer
+        # This is to ensure that for example a molecule with a single "or" stereogroup gets same hash regardless
+        # in which direction the bond was drawn
+        # Logic: Enumerate isomers, sort by canonical SMILES, take first isomer based on this sorting
+        iso_smi = []
+        iso = []
+        for i in EnumerateStereoisomers(canon_mol, options=stereo_opts):
+            iso.append(i)
+            iso_smi.append(Chem.MolToSmiles(i))
+        # Sorts ny smiles, returns previous index
+        sorted_idx = sorted(range(len(iso_smi)), key=iso_smi.__getitem__)
+        canon_mol = Chem.RWMol(iso[sorted_idx[0]])
 
         # iterating the python list is faster than lookup by idx and much faster than GetAtoms()
         # hence we iterate once to get it into a list and reuse that list for future iterations
