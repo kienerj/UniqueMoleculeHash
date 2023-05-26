@@ -279,7 +279,6 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             # for atom in m2.GetAtoms():
             # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
             for atom in atoms:
-                logger.debug(f"Atom Index: {atom.GetIdx()}")
                 for bond in atom.GetBonds():
                     if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
                         q = _canonicalize_query(bond.GetSmarts())
