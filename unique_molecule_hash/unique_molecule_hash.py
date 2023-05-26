@@ -110,13 +110,6 @@ def get_standard_hash(mol: Chem.Mol):
     return get_hash(mol)
 
 
-# TODO: include atom queries in hash. unclear how as GetSmarts() is not canonical so the same query with different
-# order returns a different SMARTS and the cxsmiles always contains the first atom in the query
-# eg [N,O,S] means CXSMiles will contain the "N" while in [O,N,S] it would be the "O".
-# Tautomerism: open issues around canonical tautomers not being at all that canonical especially if input is differently
-# kekulized (https://github.com/rdkit/rdkit/issues/5937). Use inchi if no query features present?
-# idea: make standard hash method and a configurable one to choose tautomer layer (inchi or enumerator), custom layer
-# with or without enhanced stereo etc.
 def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: bool = False,
              cx_smiles_fields: int = 489, normalize_dative_bonds: bool = True, include_query_features: bool = True,
              hash_size: int = 128, seed: int = 0) -> str:
