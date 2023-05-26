@@ -154,8 +154,6 @@ unique_molecule_hash.get_standard_hash(abs2)
 # 43a2fcd3d3493dacc43128b5eca0dffd
 ```
 
-Note that `C[C@@H](O)CC |&1:1`(both stereoisomers) does not get the same hash as `C[C@H](O)CC |&1:1` or drawing both isomers individually: `C[C@@H](O)CC.C[C@H](O)CC`. While one could argue they have the same chemical intend, for now this is out-of-scope but still a possible interesting future enhancement. 
-
 #### Repeating Groups / Polymers
 
 ```
