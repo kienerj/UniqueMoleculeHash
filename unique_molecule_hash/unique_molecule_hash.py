@@ -28,6 +28,12 @@ def separate_components(mol: Chem.Mol) -> list:
     :param mol: a valid rdkit molecule
     :return: a list of all components/fragments of the input mol
     """
+    for i in range(0, mol.GetNumBonds()):
+        bond = mol.GetBondWithIdx(i)
+        if bond.HasProp("_MolFileBondEndPts"):
+            # variable attachment point, don't separate components
+            return [Chem.RWMol(mol)]
+
     mapping = []
     frags = []
     logger.debug(f"Separating components for molecule {Chem.MolToSmiles(mol)}")
@@ -225,6 +231,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                     atomic_num = int(p_atom_type.search(query_description).group(1))
                     atom.SetAtomicNum(atomic_num)
 
+        variable_attachments = []
         for i in range(0, canon_mol.GetNumBonds()):
             bond = canon_mol.GetBondWithIdx(i)
             if bond.HasQuery():
@@ -239,6 +246,8 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 # either or query means bond is unspecified
                 elif query_description.count("BondOrder") > 1:
                     bond.SetBondType(Chem.BondType.UNSPECIFIED)
+            elif bond.HasProp("_MolFileBondEndPts"):
+                variable_attachments.append(bond)
 
         if normalize_dative_bonds:
             canon_mol = _normalize_dative_bonds(canon_mol, atoms)
@@ -253,7 +262,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
         component_hash = re.sub(r"\|[, ]?\|", "", component_hash).strip()
 
-        if include_query_features and (has_query_atom or has_query_bond):
+        if (include_query_features and (has_query_atom or has_query_bond)) or len(variable_attachments) > 0:
             # if molecule contains query atoms or bonds, special handling is needed to ensure constant hash
             # it requires that atoms need to be reordered in the order of the smiles output
 
@@ -285,28 +294,41 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 sort_order[val] = idx
             atoms = [x for _, x in sorted(zip(sort_order, atoms), key=lambda item: item[0])]
 
-            logger.debug("Hashing Query features...")
-            bonds_hashed = []
-            # for atom in m2.GetAtoms():
-            # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
-            for atom in atoms:
-                for bond in atom.GetBonds():
-                    if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
-                        q = _canonicalize_query(bond.GetSmarts())
-                        b = bond.GetBeginAtomIdx()
-                        e = bond.GetEndAtomIdx()
-                        # map to canonical atom order
-                        b = order.index(b)
-                        e = order.index(e)
-                        # always use the lowest atom index first
-                        srt = sorted([b,e])
-                        component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
-                        bonds_hashed.append(bond.GetIdx())
+            # Variable attachments
+            if len(variable_attachments) > 0:
+                for bond in variable_attachments:
+                    attachment_type = ""
+                    if bond.HasProp("_MolFileBondAttach"):
+                        attachment_type = bond.GetProp("_MolFileBondAttach")
+                    end_points = ast.literal_eval(bond.GetProp("_MolFileBondEndPts").replace(" ", ","))
+                    # first element is atom count, remove it then subtract 1 for 0-based atom index
+                    # then look-up the new atom-order
+                    end_points = [order.index(x - 1) for x in end_points[1:]]
+                    component_hash += ' |va:{},{}|'.format(end_points, attachment_type)
 
-                if atom.HasQuery():
-                    qry = _canonicalize_atom_query(atom.GetSmarts())
-                    atom_idx = order.index(atom.GetIdx())
-                    component_hash += ' |{}:{}|'.format(atom_idx, qry)
+            if include_query_features and (has_query_atom or has_query_bond):
+                logger.debug("Hashing Query features...")
+                bonds_hashed = []
+                # for atom in m2.GetAtoms():
+                # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
+                for atom in atoms:
+                    for bond in atom.GetBonds():
+                        if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
+                            q = _canonicalize_query(bond.GetSmarts())
+                            b = bond.GetBeginAtomIdx()
+                            e = bond.GetEndAtomIdx()
+                            # map to canonical atom order
+                            b = order.index(b)
+                            e = order.index(e)
+                            # always use the lowest atom index first
+                            srt = sorted([b,e])
+                            component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
+                            bonds_hashed.append(bond.GetIdx())
+
+                    if atom.HasQuery():
+                        qry = _canonicalize_atom_query(atom.GetSmarts())
+                        atom_idx = order.index(atom.GetIdx())
+                        component_hash += ' |{}:{}|'.format(atom_idx, qry)
 
         component_hashes.append(component_hash)
 
