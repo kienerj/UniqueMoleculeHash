@@ -304,6 +304,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                     # first element is atom count, remove it then subtract 1 for 0-based atom index
                     # then look-up the new atom-order
                     end_points = [order.index(x - 1) for x in end_points[1:]]
+                    end_points.sort()
                     component_hash += ' |va:{},{}|'.format(end_points, attachment_type)
 
             if include_query_features and (has_query_atom or has_query_bond):

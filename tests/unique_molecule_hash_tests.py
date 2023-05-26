@@ -90,3 +90,14 @@ class UniqueMoleculeHashTest(unittest.TestCase):
         h_abs = unique_molecule_hash.get_standard_hash(abs)
         self.assertNotEqual(h_abs, h_or1, "Molecule with absolute stereo has same hash as with 'OR'.")
         self.assertNotEqual(h_abs, h_and1, "Molecule with absolute stereo has same hash as with 'AND'.")
+
+    def test_attachment_point(self):
+
+        m1 = Chem.MolFromMolFile(r"files/attachment_point1.mol")
+        m2 = Chem.MolFromMolFile(r"files/attachment_point2.mol")
+
+        h1 = unique_molecule_hash.get_hash(m1)
+        h2 = unique_molecule_hash.get_hash(m2)
+        self.assertIsNotNone(h1)
+        self.assertIsNotNone(h2)
+        self.assertEqual(h1, h2, "Attachment point molecules have a different hash. ")
