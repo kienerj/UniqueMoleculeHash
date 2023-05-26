@@ -255,13 +255,6 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             o = canon_mol.GetProp("_smilesAtomOutputOrder")
             order = ast.literal_eval(o)
             logger.debug(order)
-            # working on a reordered copy guarantees the same order for same molecules
-            #m2 = Chem.RenumberAtoms(canon_mol, order)
-            # newOrder is [3,2,0,1], then atom 3 in the original molecule will be atom 0 in the new one
-            # re order the list so it works for sorting zipped lists
-            sort_order = [None] * len(order)
-            for idx, val in enumerate(order):
-                sort_order[val] = idx
 
             # working on a reordered atom list guarantees the same order for same molecules
             # this is much faster than Chem.RenumberAtoms(canon_mol, order), 5 vs 40 µs
@@ -269,6 +262,11 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             # https://stackoverflow.com/questions/6618515/sorting-list-according-to-corresponding-values-from-a-parallel-list
             # https://www.pythoncentral.io/how-to-sort-a-list-tuple-or-object-with-sorted-in-python/
             # create list of lists, sort list by first element, the new order, return the second element into new list
+            # newOrder is [3,2,0,1], then atom 3 in the original molecule will be atom 0 in the new one
+            # reorder the list before sorting the zipped lists so that the atoms list is in the new order
+            sort_order = [None] * len(order)
+            for idx, val in enumerate(order):
+                sort_order[val] = idx
             atoms = [x for _, x in sorted(zip(sort_order, atoms), key=lambda item: item[0])]
 
             logger.debug("Hashing Query features...")
