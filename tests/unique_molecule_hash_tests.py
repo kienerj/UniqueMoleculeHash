@@ -228,3 +228,17 @@ M  END"""
         self.assertIsNotNone(h1)
         self.assertIsNotNone(h2)
         self.assertIsNot(h1,h2,"Polymers have same hash even-though different repeat pattern specified.")
+
+    def test_tautomer_insensitivity(self):
+
+        smi = "CC/C=C1/C2C(=CC=CC=2)C(=O)O1"
+        m = Chem.MolFromSmiles(smi)
+
+        # Generate random kekulized SMILES and check if hash is always the same
+        hashes = []
+        for i in range(100):
+            hashes.append(unique_molecule_hash.get_standard_hash(
+                Chem.MolFromSmiles(Chem.MolToSmiles(m, doRandom=True, canonical=False, kekuleSmiles=True))))
+
+        self.assertTrue(len(set(hashes)) == 1,
+                        "Found random tautomer with different hash. Hash is not tautomer insensitive")

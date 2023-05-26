@@ -2,9 +2,9 @@
 
 The intent of `unique_molecule_hash` is to create a unique hash for rdkit molecule instances that can be used to compare them if they match. This should ultimately include every valid rdkit molecule and all it's chemically relevant features including queries.
 
-Existing hashing mechanisms do not always fully suit the needs. inchi does not capture enhanced stereo or dative bonds while RDKit registration hash for example does not capture query features and has other issues that make it not usable for my use-case namely tautomer insensitive hash losing double bond stereo on molecules without tautomerism. 
+Existing hashing mechanisms do not always fully suit the needs. InChI does not capture enhanced stereo or dative bonds while RDKit RegistrationHash for example does not capture query features. On top of that the tautomer insensitive hash [may lose double bond stereo on molecules without tautomerism](https://github.com/rdkit/rdkit/discussions/6318). 
 
-Unique Molecule Hashes goal is to solve this problem so one can easily compare molecules without having to think which is the right hash to choose. It should "just work". of course this is highly opinionated what should be part of the hash and what not.
+Unique Molecule Hashes goal is to solve this problem so one can easily compare molecules without having to think which is the right hash to choose. It should "just work". Of course this is highly opinionated what should be part of the hash and what not. Therefore there is also a non-standard version with multiple options to configure the hash.
 
 This is a work in progress. Use at own risk. Hashes may still change with every new version and there are known limitations.
 
@@ -38,8 +38,8 @@ You can then immediately use the new version without any further changes.
 
 ## Caveats
 
-- **Tautomer-insensitivity** depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input (different kekulization in input format). See [issue 5937](https://github.com/rdkit/rdkit/issues/5937).
-- Much slower to generate than InChI
+- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been addressed with a workaround but it is suggested you test feasibility on your set of molecules
+- Much slower to generate than InChI (also due to workarounds like above)
 - Same query (SMARTS) can lead to different hash probably due to SMILES canonicalization treating [C] and [C&R1] the same so the order is not guaranteed and depends on input order: `[C]!@;:C-,=C(-[C&R1])-C` vs `"C-C(-[C&R1])-,=C!@;:[C]`. However `[C]!@;:C-,=C(-[C&R1])-C` and `[C]:;!@C-,=C(-[R1&C])-C` do return the same hash so the order of the query does not matter
 
 ## Features / Options

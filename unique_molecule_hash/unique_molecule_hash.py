@@ -224,7 +224,11 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             tauts = enumerator.Enumerate(component)
             if len(tauts) > 1:
                 logger.debug("Found more than 1 tautomer. Using canonical tautomer.")
-                canon_mol = enumerator.Canonicalize(component)
+                # Fix for https://github.com/rdkit/rdkit/issues/5937
+                # Different input especially regarding kekulization can lead to a different canonical tautomer
+                # export -> import to smiles should fix that
+                temp_mol = Chem.MolFromSmiles(Chem.MolToCXSmiles(component))
+                canon_mol = enumerator.Canonicalize(temp_mol)
             else:
                 canon_mol = component
         else:
