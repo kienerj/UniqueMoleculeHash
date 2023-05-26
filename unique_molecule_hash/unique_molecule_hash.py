@@ -102,10 +102,10 @@ def separate_components(mol: Chem.Mol) -> list:
 
 def get_standard_hash(mol: Chem.Mol):
     """
-    Generates a unique hash for this molecule to compare rdkit molecules on tehir same chemical intent.
+    Generates a unique hash for this molecule to compare rdkit molecules with the same chemical intent.
 
     :param mol: a valid rdkit molecule
-    :return: the stanard unique hash
+    :return: the standard unique hash
     """
     return get_hash(mol)
 
