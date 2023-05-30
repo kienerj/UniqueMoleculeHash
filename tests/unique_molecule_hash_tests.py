@@ -101,3 +101,12 @@ class UniqueMoleculeHashTest(unittest.TestCase):
         self.assertIsNotNone(h1)
         self.assertIsNotNone(h2)
         self.assertEqual(h1, h2, "Attachment point molecules have a different hash. ")
+
+    def test_include_enhanced_stereo(self):
+        cx_smiles_fields = 489
+        result = unique_molecule_hash._include_enhanced_stereo(cx_smiles_fields)
+        self.assertTrue(result)
+
+        cx_smiles_fields = 425
+        result = unique_molecule_hash._include_enhanced_stereo(cx_smiles_fields)
+        self.assertFalse(result)

@@ -17,7 +17,7 @@ p_bond_type = re.compile(r"BondOrder (\d+)")
 stereo_opts = StereoEnumerationOptions(onlyStereoGroups=True)
 
 
-def separate_components(mol: Chem.Mol) -> list:
+def separate_components(mol: Chem.Mol, include_enhanced_stereo: bool = True) -> list:
     """
     Separates the rdkit mol into its individual components and returns them as a list of rdkit RWMols for further
     manipulation.
@@ -56,7 +56,8 @@ def separate_components(mol: Chem.Mol) -> list:
 
     # GetMolFrags prior to 2023.03.1 loses enhanced stereo if there is more than one component (structure) in the
     # molecule. Therefore, the enhanced stereo needs to be recreated and reassigned.
-    if rdkit.__version__ < "2023.03.01" and len(components) > 1 and len(mol.GetStereoGroups()) > 0:
+    if rdkit.__version__ < "2023.03.01" and len(components) > 1 and len(mol.GetStereoGroups()) > 0 \
+            and include_enhanced_stereo:
         logger.debug(f"Found RDKit version < 2023.03.01. Have to reassign enhanced stereo to components.")
         stereo_groups = [[] for i in range(len(components))]
 
@@ -141,6 +142,8 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     include_query_features option will include query features as part of the hash. In any case, query atoms will be
     included as "any atom" (*) but with this option the actual query will be part of the hash as well.
 
+    To exclude enhanced stereo from the hash but keep the rest the same, set cx_smiles_fields to 425.
+
     by default a hash_size of 128 is used which has extremely high guarantees for uniqueness. See
     https://github.com/Cyan4973/xxHash/wiki/Collision-ratio-comparison for details. A size of 64 still has low collision
     rates and could be useful for many applications while saving space.
@@ -166,7 +169,8 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     #
     # Part 1
     # GetMolFrags prior to rdkit 2023.03.1 loses enhanced stereo if there is more than one component in the molecule.
-    components = separate_components(mol)
+    incl_enh_stereo = _include_enhanced_stereo(cx_smiles_fields)
+    components = separate_components(mol, incl_enh_stereo)
 
     # Part 2
     # Get canonical tautomer
@@ -197,15 +201,16 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         # This is to ensure that for example a molecule with a single "or" stereogroup gets same hash regardless
         # in which direction the bond was drawn
         # Logic: Enumerate isomers, sort by canonical SMILES, take first isomer based on this sorting
-        iso_smi = []
-        iso = []
-        for i in EnumerateStereoisomers(canon_mol, options=stereo_opts):
-            iso.append(i)
-            iso_smi.append(Chem.MolToSmiles(i))
-        if len(iso) > 1:
-            # Sorts ny smiles, returns previous index
-            sorted_idx = sorted(range(len(iso_smi)), key=iso_smi.__getitem__)
-            canon_mol = Chem.RWMol(iso[sorted_idx[0]])
+        if incl_enh_stereo:
+            iso_smi = []
+            iso = []
+            for i in EnumerateStereoisomers(canon_mol, options=stereo_opts):
+                iso.append(i)
+                iso_smi.append(Chem.MolToSmiles(i))
+            if len(iso) > 1:
+                # Sorts ny smiles, returns previous index
+                sorted_idx = sorted(range(len(iso_smi)), key=iso_smi.__getitem__)
+                canon_mol = Chem.RWMol(iso[sorted_idx[0]])
 
         # iterating the python list is faster than lookup by idx and much faster than GetAtoms()
         # hence we iterate once to get it into a list and reuse that list for future iterations
@@ -346,6 +351,24 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     hex_hash = h.hexdigest()
     logger.debug(f"Generated hash {hex_hash} for molecule {Chem.MolToSmiles(mol)}.")
     return hex_hash
+
+
+def _include_enhanced_stereo(cx_smiles_fields: int) -> bool:
+    """
+    Checks if cx_smiles_fields has enhanced stereo flag set
+    """
+
+    value = cx_smiles_fields
+    used_options = []
+    power = 1
+    while value > 0:
+        opt = value % pow(2, power)
+        if opt > 0:
+            used_options.append(opt)
+            value = value - opt
+        power = power + 1
+
+    return Chem.rdmolfiles.CXSmilesFields.CX_ENHANCEDSTEREO in used_options
 
 
 def _canonicalize_query(smarts: str):
