@@ -202,9 +202,10 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         for i in EnumerateStereoisomers(canon_mol, options=stereo_opts):
             iso.append(i)
             iso_smi.append(Chem.MolToSmiles(i))
-        # Sorts ny smiles, returns previous index
-        sorted_idx = sorted(range(len(iso_smi)), key=iso_smi.__getitem__)
-        canon_mol = Chem.RWMol(iso[sorted_idx[0]])
+        if len(iso) > 1:
+            # Sorts ny smiles, returns previous index
+            sorted_idx = sorted(range(len(iso_smi)), key=iso_smi.__getitem__)
+            canon_mol = Chem.RWMol(iso[sorted_idx[0]])
 
         # iterating the python list is faster than lookup by idx and much faster than GetAtoms()
         # hence we iterate once to get it into a list and reuse that list for future iterations
@@ -212,42 +213,44 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         has_query_bond = False
         atoms = []
 
-        for i in range(0, canon_mol.GetNumAtoms()):
-            atom = canon_mol.GetAtomWithIdx(i)
-            atoms.append(atom)
-            if atom.HasQuery():
-                has_query_atom = True
-                # Fix Query atoms:
-                # A query list like [F,Cl,Br] leads to a SMILES containing "F", the first atom in the
-                # list instead of a "*" when this same query is read from SMARTS.
-                query_description = atom.DescribeQuery()
-                if "AtomOr" in query_description: # likely too simplistic
-                    logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
-                    atom.SetAtomicNum(0)
-                # Fix atomic number with atypical query order
-                # A SMARTS input of [R1&C] will set the atom in SMILES as wildcard instead of a Carbon
-                # because it is set to atomic number 0. Fix this and set to the proper AtomType
-                if atom.GetAtomicNum() == 0 and query_description.count("AtomType") == 1:
-                    atomic_num = int(p_atom_type.search(query_description).group(1))
-                    atom.SetAtomicNum(atomic_num)
+        if normalize_dative_bonds or include_query_features:
+            for i in range(0, canon_mol.GetNumAtoms()):
+                atom = canon_mol.GetAtomWithIdx(i)
+                atoms.append(atom)
+                if atom.HasQuery():
+                    has_query_atom = True
+                    # Fix Query atoms:
+                    # A query list like [F,Cl,Br] leads to a SMILES containing "F", the first atom in the
+                    # list instead of a "*" when this same query is read from SMARTS.
+                    query_description = atom.DescribeQuery()
+                    if "AtomOr" in query_description: # likely too simplistic
+                        logger.info(f"Found AtomOr query with atomic number {atom.GetAtomicNum()}. Setting it to 0.")
+                        atom.SetAtomicNum(0)
+                    # Fix atomic number with atypical query order
+                    # A SMARTS input of [R1&C] will set the atom in SMILES as wildcard instead of a Carbon
+                    # because it is set to atomic number 0. Fix this and set to the proper AtomType
+                    if atom.GetAtomicNum() == 0 and query_description.count("AtomType") == 1:
+                        atomic_num = int(p_atom_type.search(query_description).group(1))
+                        atom.SetAtomicNum(atomic_num)
 
-        variable_attachments = []
-        for i in range(0, canon_mol.GetNumBonds()):
-            bond = canon_mol.GetBondWithIdx(i)
-            if bond.HasQuery():
-                has_query_bond = True
-                # Set bond to specific type
-                # a SMARTS of [!@;:] will lead to an unspecified bond type while [:;!@] (different order) results in
-                # aromatic bond type. If only 1 specific bond type in query, set it to that bond type
-                query_description = bond.DescribeQuery()
-                if query_description.count("BondOrder") == 1:
-                    bond_type = int(p_bond_type.search(query_description).group(1))
-                    bond.SetBondType(Chem.BondType.values[bond_type])
-                # either or query means bond is unspecified
-                elif query_description.count("BondOrder") > 1:
-                    bond.SetBondType(Chem.BondType.UNSPECIFIED)
-            elif bond.HasProp("_MolFileBondEndPts"):
-                variable_attachments.append(bond)
+        if include_query_features:
+            variable_attachments = []
+            for i in range(0, canon_mol.GetNumBonds()):
+                bond = canon_mol.GetBondWithIdx(i)
+                if bond.HasQuery():
+                    has_query_bond = True
+                    # Set bond to specific type
+                    # a SMARTS of [!@;:] will lead to an unspecified bond type while [:;!@] (different order) results in
+                    # aromatic bond type. If only 1 specific bond type in query, set it to that bond type
+                    query_description = bond.DescribeQuery()
+                    if query_description.count("BondOrder") == 1:
+                        bond_type = int(p_bond_type.search(query_description).group(1))
+                        bond.SetBondType(Chem.BondType.values[bond_type])
+                    # either or query means bond is unspecified
+                    elif query_description.count("BondOrder") > 1:
+                        bond.SetBondType(Chem.BondType.UNSPECIFIED)
+                elif bond.HasProp("_MolFileBondEndPts"):
+                    variable_attachments.append(bond)
 
         if normalize_dative_bonds:
             canon_mol = _normalize_dative_bonds(canon_mol, atoms)
@@ -262,7 +265,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
         # Example: CC(=O)OC1CCCCC1 |,SgD:Text:XYZ::::,SgD:Text:ABC::::| => CC(=O)OC1CCCCC1 |,| => CC(=O)OC1CCCCC1
         component_hash = re.sub(r"\|[, ]?\|", "", component_hash).strip()
 
-        if (include_query_features and (has_query_atom or has_query_bond)) or len(variable_attachments) > 0:
+        if include_query_features and (has_query_atom or has_query_bond):
             # if molecule contains query atoms or bonds, special handling is needed to ensure constant hash
             # it requires that atoms need to be reordered in the order of the smiles output
 
@@ -295,41 +298,39 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             atoms = [x for _, x in sorted(zip(sort_order, atoms), key=lambda item: item[0])]
 
             # Variable attachments
-            if len(variable_attachments) > 0:
-                for bond in variable_attachments:
-                    attachment_type = ""
-                    if bond.HasProp("_MolFileBondAttach"):
-                        attachment_type = bond.GetProp("_MolFileBondAttach")
-                    end_points = ast.literal_eval(bond.GetProp("_MolFileBondEndPts").replace(" ", ","))
-                    # first element is atom count, remove it then subtract 1 for 0-based atom index
-                    # then look-up the new atom-order
-                    end_points = [order.index(x - 1) for x in end_points[1:]]
-                    end_points.sort()
-                    component_hash += ' |va:{},{}|'.format(end_points, attachment_type)
+            for bond in variable_attachments:
+                attachment_type = ""
+                if bond.HasProp("_MolFileBondAttach"):
+                    attachment_type = bond.GetProp("_MolFileBondAttach")
+                end_points = ast.literal_eval(bond.GetProp("_MolFileBondEndPts").replace(" ", ","))
+                # first element is atom count, remove it then subtract 1 for 0-based atom index
+                # then look-up the new atom-order
+                end_points = [order.index(x - 1) for x in end_points[1:]]
+                end_points.sort()
+                component_hash += ' |va:{},{}|'.format(end_points, attachment_type)
 
-            if include_query_features and (has_query_atom or has_query_bond):
-                logger.debug("Hashing Query features...")
-                bonds_hashed = []
-                # for atom in m2.GetAtoms():
-                # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
-                for atom in atoms:
-                    for bond in atom.GetBonds():
-                        if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
-                            q = _canonicalize_query(bond.GetSmarts())
-                            b = bond.GetBeginAtomIdx()
-                            e = bond.GetEndAtomIdx()
-                            # map to canonical atom order
-                            b = order.index(b)
-                            e = order.index(e)
-                            # always use the lowest atom index first
-                            srt = sorted([b,e])
-                            component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
-                            bonds_hashed.append(bond.GetIdx())
+            logger.debug("Hashing Query features...")
+            bonds_hashed = []
+            # for atom in m2.GetAtoms():
+            # https://github.com/rdkit/rdkit/issues/6208 GetAtoms() is slow
+            for atom in atoms:
+                for bond in atom.GetBonds():
+                    if bond.HasQuery() and bond.GetIdx() not in bonds_hashed:
+                        q = _canonicalize_query(bond.GetSmarts())
+                        b = bond.GetBeginAtomIdx()
+                        e = bond.GetEndAtomIdx()
+                        # map to canonical atom order
+                        b = order.index(b)
+                        e = order.index(e)
+                        # always use the lowest atom index first
+                        srt = sorted([b,e])
+                        component_hash += ' |{}:{},{}|'.format(q, srt[0], srt[1])
+                        bonds_hashed.append(bond.GetIdx())
 
-                    if atom.HasQuery():
-                        qry = _canonicalize_atom_query(atom.GetSmarts())
-                        atom_idx = order.index(atom.GetIdx())
-                        component_hash += ' |{}:{}|'.format(atom_idx, qry)
+                if atom.HasQuery():
+                    qry = _canonicalize_atom_query(atom.GetSmarts())
+                    atom_idx = order.index(atom.GetIdx())
+                    component_hash += ' |{}:{}|'.format(atom_idx, qry)
 
         component_hashes.append(component_hash)
 
