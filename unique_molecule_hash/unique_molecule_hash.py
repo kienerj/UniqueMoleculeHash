@@ -113,11 +113,51 @@ def separate_components(mol: Chem.Mol, include_enhanced_stereo: bool = True) -> 
 def get_standard_hash(mol: Chem.Mol):
     """
     Generates a unique hash for this molecule to compare rdkit molecules with the same chemical intent.
+    This is the most comprehensive hash including most features of a molecule.
 
     :param mol: a valid rdkit molecule
     :return: the standard unique hash
     """
     return get_hash(mol)
+
+
+def get_molecule_hash(mol: Chem.Mol, include_enhanced_stereo=True, tautomer_sensitive=False,
+                      normalize_dative_bonds=False):
+    """
+    Configurable hash with sensible defaults for basic small molecules.
+
+    This hash always excludes query features and hence should only be used with "normal" molecules. The reason for
+    choosing this over standard hash is the availability of additional options and better performance.
+
+    :param mol:
+    :param include_enhanced_stereo: if enhanced stereo should be part of the hash. Default: True
+    :param tautomer_sensitive: if hash is sensitive to tautomerism. Default: False
+    :param normalize_dative_bonds: if dative bonds should be normalized. Default: False
+    :return:
+    """
+    cx_smiles_fields = 489
+    if not include_enhanced_stereo:
+        cx_smiles_fields = 425
+
+    return get_hash(mol, include_query_features=False, cx_smiles_fields=cx_smiles_fields,
+                    tautomer_sensitive=tautomer_sensitive, normalize_dative_bonds= normalize_dative_bonds)
+
+
+def get_quick_hash(mol: Chem.Mol):
+    """
+    Generates a hash with advanced features disabled to increase processing speed.
+    This should only be used for pre-processed / pre-cleaned datasets.
+
+    - tautomer sensitive
+    - excludes enhanced stereo
+    - does not normalize dative bonds
+    - does not include query features
+
+    :param mol: a valid rdkit molecule
+    :return: thw quick hash
+    """
+    return get_hash(mol, tautomer_sensitive=True, cx_smiles_fields=425, normalize_dative_bonds=False,
+                    include_query_features=False)
 
 
 def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: bool = False,
@@ -127,14 +167,13 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     Creates a hash to compare RDKit molecules. It takes into account enhanced stereo, tautomerism and optionally
     query features.
 
-    By default, an rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
-    as it has a "Canonicalize(mol)" method that returns a canonical tautomer (RDKit molecule). This of course impact the
-    generated hash.
-
-    By default the hash is tautomer insensitive, meaning a different tautomer of the same molecule will result in the
+    By default, the hash is tautomer insensitive, meaning a different tautomer of the same molecule will result in the
     same hash. To make the hash tautomer sensitive, set tautomer_sensitive = True.
     Note that the rdMolStandardize.TautomerEnumerator() has bugs in which a different input with different kekulization
     can lead to a different canonical tautomer and hence a different hash!
+    An rdMolStandardize.TautomerEnumerator() instance is used. You can pass your own as long
+    as it has a "Canonicalize(mol)" method that returns a canonical tautomer (RDKit molecule). This of course impact the
+    generated hash.
 
     normalize_dative_bonds option converts potential dative bonds drawn as single bonds to dative bonds. This is only
     done if invalid valences are found. As a last step all dative bonds will be removed to give the same hash to the
@@ -223,7 +262,7 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
             for i in range(0, canon_mol.GetNumAtoms()):
                 atom = canon_mol.GetAtomWithIdx(i)
                 atoms.append(atom)
-                if atom.HasQuery():
+                if include_query_features and atom.HasQuery():
                     has_query_atom = True
                     # Fix Query atoms:
                     # A query list like [F,Cl,Br] leads to a SMILES containing "F", the first atom in the
