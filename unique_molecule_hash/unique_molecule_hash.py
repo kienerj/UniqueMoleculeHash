@@ -26,6 +26,7 @@ def separate_components(mol: Chem.Mol, include_enhanced_stereo: bool = True) -> 
     from the returned fragments. This reassigns it.
 
     :param mol: a valid rdkit molecule
+    :param include_enhanced_stereo: to do additional processing required for enhanced stereo
     :return: a list of all components/fragments of the input mol
     """
     for i in range(0, mol.GetNumBonds()):
