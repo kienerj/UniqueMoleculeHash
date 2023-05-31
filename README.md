@@ -38,7 +38,7 @@ You can then immediately use the new version without any further changes.
 
 ## Features / Options
 
-The normal way of using `unique_molecule_hash` is just calling `get_standard_hash(mol)` and it will generated a standard hash similar to "standard inChI". 
+The normal way of using `unique_molecule_hash` is just calling `get_standard_hash(mol)` and it will generate a standard hash similar to "standard inChI". 
 
 For further configurability there are either convenience methods `get_molecule_hash` and `get_quick_hash` for common settings or the `get_hash` method with all available options:
 
@@ -73,9 +73,10 @@ For further configurability there are either convenience methods `get_molecule_h
 
 ## Caveats
 
-- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been partially addressed with a workaround which works for molecules but not for query molecules which have tautomerism and depend on input 
+- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been partially addressed with a workaround which works for molecules but not for query molecules which have tautomerism.
 - Much slower to generate than InChI (also due to workarounds like above)
 - The has internally relies on SMILES canonicalization which ignores additional context of atoms like query features and therefore the atom order is not guaranteed and can be different for a different input order.  [See RDKit Issue #6401](https://github.com/rdkit/rdkit/issues/6401). This affects SMARTS with a different input order or multi-center attachments (see the above link for examples.). It does not affect normal small molecules.
+- If RDKit SMILES canonicalization changes, the hash will need to be regenerated
 
 ## Examples
 
@@ -104,6 +105,16 @@ unique_molecule_hash.get_standard_hash(m1)
 unique_molecule_hash.get_standard_hash(m2)
 # 044da709a16297d9563034b7fffbf134
 ```
+
+But due to canonicalization issues (see caveats):
+
+```python
+m3 = Chem.MolFromSmarts("C-C(-[C&R1])-,=C!@;:[C]")
+unique_molecule_hash.get_standard_hash(m3)
+# b9503bd9dd7a3e7ece827720b17f4215
+```
+
+This is the same query in different atom order leading to a different hash.
 
 #### Dative Bonds
 
