@@ -1,10 +1,10 @@
 # Unique Molecule Hash
 
-The intent of `unique_molecule_hash` is to create a unique hash for rdkit molecule instances that can be used to compare them if they match. This should ultimately include every valid rdkit molecule and all it's chemically relevant features including queries.
+The intent of `unique_molecule_hash` is to create a unique hash for rdkit molecule instances that can be used to compare them if they match. The goal is to get a unique hash for every valid rdkit molecule and all it's chemically relevant features including queries to be able to easily compare any type of rdkit molecule even from "unclean" sources.
 
-Existing hashing mechanisms do not always fully suit these requirements. InChI does not capture enhanced stereo or dative bonds while RDKit RegistrationHash for example does not capture query features. On top of that the tautomer insensitive hash [may lose double bond stereo on molecules without tautomerism](https://github.com/rdkit/rdkit/discussions/6318). 
+Existing hashing mechanisms do not always fully suit include all desired chemically relevant features. InChI does not capture enhanced stereo or dative bonds while RDKit RegistrationHash for example does not capture query features. On top of that the tautomer insensitive RegistrationHash [may lose double bond stereo on molecules without tautomerism](https://github.com/rdkit/rdkit/discussions/6318). 
 
-Unique Molecule Hashes goal is to solve this problem so one can compare molecules without having to think which is the right hash to choose. It should "just work". Of course this is highly opinionated what should be part of the hash and what not. Therefore the hash can also be configured with multiple options, making it "non-standard". 
+Unique Molecule Hashes goal is to solve this problem so one can compare molecules without having to think which is the right hash to choose. It should "just work". Of course this is highly opinionated what should be part of the hash and what not. Therefore, the hash can also be configured with multiple options, making it "non-standard".
 
 This is a work in progress. Use at own risk. Hashes may still change with every new version and there are known limitations.
 
@@ -59,7 +59,7 @@ For further configurability there are either convenience methods `get_molecule_h
 
 - **include_query_features**: if query features should be part of the hash or not
 
-    This will also disable optimizations  to queries. For example `[R1&C]` in SMARTS gets an atomic number 0 (or * in SMILES) while `[C&R1]` is correctly set to 6 and a C in SMILES. If `include_query_features` is False, these optimizations will be omitted and the same query in a different order will get a different hash.
+    This will also disable optimizations  to queries. For example `[R1&C]` in SMARTS gets an atomic number 0 (or * in SMILES) while `[C&R1]` is correctly set to 6 and a C in SMILES. If `include_query_features` is False, these optimizations will be omitted and the same query in a different order will get a different hash. In general if this option is set to "False", the hash of a query molecule is meaningless.
 
 - **hash_size**: 64 or 128 bits. By default it's 128 bits with very high uniqueness guarantees.
 
@@ -73,7 +73,7 @@ For further configurability there are either convenience methods `get_molecule_h
 
 ## Caveats
 
-- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been addressed with a workaround but it is suggested you test feasibility on your set of molecules
+- Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been partially addressed with a workaround which works for molecules but not for query molecules which have tautomerism and depend on input 
 - Much slower to generate than InChI (also due to workarounds like above)
 - The has internally relies on SMILES canonicalization which ignores additional context of atoms like query features and therefore the atom order is not guaranteed and can be different for a different input order.  [See RDKit Issue #6401](https://github.com/rdkit/rdkit/issues/6401). This affects SMARTS with a different input order or multi-center attachments (see the above link for examples.). It does not affect normal small molecules.
 
