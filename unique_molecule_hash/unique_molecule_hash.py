@@ -222,6 +222,13 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
     component_hashes = []
     for component in components:
 
+        has_query = False
+        if include_query_features:
+            # only check if we actually care about query features, performance optimization
+            # and this is the slower, the bigger the molecule is without any query
+            has_query = (any(mol.GetAtomWithIdx(i).HasQuery() for i in range(mol.GetNumAtoms())) or
+             any(mol.GetBondWithIdx(i).HasQuery() for i in range(mol.GetNumBonds())))
+
         # Get Canonical Tautomer
         if not tautomer_sensitive:
             tauts = enumerator.Enumerate(component)
@@ -230,8 +237,12 @@ def get_hash(mol: Chem.Mol, enumerator=tautomer_enumerator, tautomer_sensitive: 
                 # Fix for https://github.com/rdkit/rdkit/issues/5937
                 # Different input especially regarding kekulization can lead to a different canonical tautomer
                 # export -> import to smiles should fix that
-                temp_mol = Chem.MolFromSmiles(Chem.MolToCXSmiles(component))
-                canon_mol = enumerator.Canonicalize(temp_mol)
+                if has_query:
+                    # can't roundtrip to smiles as query info would be lost
+                    canon_mol = enumerator.Canonicalize(component)
+                else:
+                    temp_mol = Chem.MolFromSmiles(Chem.MolToCXSmiles(component))
+                    canon_mol = enumerator.Canonicalize(temp_mol)
             else:
                 canon_mol = component
         else:
