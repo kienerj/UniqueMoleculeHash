@@ -113,7 +113,7 @@ def separate_components(mol: Chem.Mol, include_enhanced_stereo: bool = True) -> 
 def get_standard_hash(mol: Chem.Mol):
     """
     Generates a unique hash for this molecule to compare rdkit molecules with the same chemical intent.
-    This is the most comprehensive hash including most features of a molecule.
+    This is the most comprehensive hash including the most features of a molecule.
 
     :param mol: a valid rdkit molecule
     :return: the standard unique hash
@@ -122,7 +122,7 @@ def get_standard_hash(mol: Chem.Mol):
 
 
 def get_molecule_hash(mol: Chem.Mol, include_enhanced_stereo=True, tautomer_sensitive=False,
-                      normalize_dative_bonds=False):
+                      normalize_dative_bonds=True):
     """
     Configurable hash with sensible defaults for basic small molecules.
 
@@ -132,7 +132,7 @@ def get_molecule_hash(mol: Chem.Mol, include_enhanced_stereo=True, tautomer_sens
     :param mol:
     :param include_enhanced_stereo: if enhanced stereo should be part of the hash. Default: True
     :param tautomer_sensitive: if hash is sensitive to tautomerism. Default: False
-    :param normalize_dative_bonds: if dative bonds should be normalized. Default: False
+    :param normalize_dative_bonds: if dative bonds should be normalized. Default: True
     :return:
     """
     cx_smiles_fields = 489

@@ -8,6 +8,16 @@ Unique Molecule Hashes goal is to solve this problem so one can compare molecule
 
 This is a work in progress. Use at own risk. Hashes may still change with every new version and there are known limitations.
 
+#### Status
+
+Development currently "on-hold". See "Caveats" section for technical details. 
+
+The goal of this library can currently not be achieved for query molecules unless some fundamental things in RDKit itself change (like SMILES canonicalization). At the same time it is hard to justify making these changes just to be able to compare query molecules. 
+
+Due to known issues in the `TautomerEnumerator`, query molecules with tautomerism might also not work properly (get different hash for the same query molecule (same meaning)). For normal molecules a workaround alleviates the issue but of course thereby reducing performance.
+
+However **the hash works well for general small molecules** (`get_molecule_hash`) **and takes enhanced stereochemistry into account** which is a use-case absent from other hashes.
+
 ## Installation
 
 The suggested approach to try it out is to create a new conda environment from an environment.yml:
@@ -67,7 +77,7 @@ For further configurability there are either convenience methods `get_molecule_h
 
     This just changes the final hash but not the underlying value used for hashing. Can be used when you want to avoid easy look-up from 3rd parties, kind of an anonymization feature
 
-`get_molecule_hash` will by default disable query features and dative bond normalization. This would be a convenience method for general small molecules. The advantage of disabling the features is less processing and hence slightly faster hash generation.
+`get_molecule_hash` will by default disable query features. This would be a convenience method for general small molecules. The advantage of disabling the feature is less processing and hence slightly faster hash generation.
 
 `get_quick_hash` disables all "advanced options" for performance. It should only be applied to pre-cleaned / pre-standardized data sets. It is tautomer sensitive, ignores enhanced stereo and query features and does not normalize dative bonds.
 
@@ -75,7 +85,7 @@ For further configurability there are either convenience methods `get_molecule_h
 
 - Tautomer-insensitivity depends on RDKits `TautomerEnumerator` which has several known issues. This can lead to a different hash for the same molecule but with a different input. See [issue 5937](https://github.com/rdkit/rdkit/issues/5937). The issue has been partially addressed with a workaround which works for molecules but not for query molecules which have tautomerism.
 - Much slower to generate than InChI (also due to workarounds like above)
-- The has internally relies on SMILES canonicalization which ignores additional context of atoms like query features and therefore the atom order is not guaranteed and can be different for a different input order.  [See RDKit Issue #6401](https://github.com/rdkit/rdkit/issues/6401). This affects SMARTS with a different input order or multi-center attachments (see the above link for examples.). It does not affect normal small molecules.
+- The hash internally relies on SMILES canonicalization which ignores additional context of atoms like query features and therefore the atom order is not guaranteed and can be different for a different input order.  [See RDKit Issue #6401](https://github.com/rdkit/rdkit/issues/6401). This affects SMARTS with a different input order or multi-center attachments (see the above link for examples.). It does not affect normal small molecules.
 - If RDKit SMILES canonicalization changes, the hash will need to be regenerated
 
 ## Examples
